@@ -8,6 +8,11 @@ on:
     branches: [ "main", "dev" ]
     paths:
       - 'frontend/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  SECRETS_MANAGER_SECRET_NAME: devsecops/tokens
+
 jobs:
   GitLeaks:
     runs-on: ubuntu-latest
@@ -49,12 +54,28 @@ jobs:
     name: SAST - SonarCloud
     steps:
     - uses: actions/checkout@v4
+
+    # AWS credentials
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # Lấy secrets từ AWS Secrets Manager
+    - name: Get secrets from AWS Secrets Manager
+      uses: aws-actions/aws-secretsmanager-get-secrets@v2
+      with:
+        secret-ids: |
+          ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+        parse-json-secrets: true
           
     - name: SonarCloud Scan
       uses: sonarsource/sonarcloud-github-action@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_TOKEN: ${{ env.DEVSECOPS_TOKENS_SONAR_TOKEN }}
       with:
         args: >
           -Dsonar.organization=giabao-22520120
@@ -66,11 +87,28 @@ jobs:
     name: SCA Scans
     steps:
       - uses: actions/checkout@v4
+
+      # AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Lấy secrets từ AWS Secrets Manager
+      - name: Get secrets from AWS Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        with:
+          secret-ids: |
+            ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+          parse-json-secrets: true
+
       - name: Run Snyk
         uses: snyk/actions/node@master
         continue-on-error: true
         env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+          SNYK_TOKEN: ${{ env.DEVSECOPS_TOKENS_SNYK_TOKEN }}
         with:
           command: test
           args: --file=frontend/package.json
@@ -96,7 +134,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.11.0
         continue-on-error: true
         with:
-          target: 'http://example.com/'
+          target: 'https://dev.product-tracer.com/'
           allow_issue_writing: false
           fail_action: false
           artifact_name: 'zap-scan-report'
@@ -114,6 +152,22 @@ jobs:
         
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # AWS credentials
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # Docker Hub credentials
+      - name: Get Docker Hub secrets from AWS Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        with:
+          secret-ids: |
+            ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+          parse-json-secrets: true
 
       - name: Set version
         id: vars
@@ -145,8 +199,8 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_USERNAME }}
+          password: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_TOKEN }}
       
       # Push image lên Docker Hub
       - name: Push Docker image
