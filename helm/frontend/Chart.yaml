@@ -1,0 +1,18 @@
+apiVersion: v2
+name: product-tracer-frontend
+description: A Helm chart for Product Tracer Frontend Application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - frontend
+  - react
+  - nginx
+
+maintainers:
+  - name: DevOps Team
+    email: 22520120@gm.uit.edu.vn.com
+
+sources:
+  - https://github.com/Giabaoday/DevSecOps_Project
