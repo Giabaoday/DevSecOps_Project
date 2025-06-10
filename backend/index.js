@@ -78,8 +78,28 @@ const originalHandler = async (event) => {
 
     let response;
     
+    // Health Check Route
+    if (path === '/health' && httpMethod === 'GET') {
+      response = await healthCheck();
+    }
+    
+    // CORS Options Route
+    else if (httpMethod === 'OPTIONS') {
+      return formatResponse(200, { message: 'CORS OK' });
+    }
+    
+    // Public Routes (No Authentication)
+    else if (path === '/public/verify' && httpMethod === 'GET') {
+      const productCode = queryStringParameters?.code;
+      response = await verifyProductOnBlockchain(productCode);
+    }
+    else if (path === '/public/trace' && httpMethod === 'GET') {
+      const productCode = queryStringParameters?.code;
+      response = await traceProductWithBlockchain(productCode);
+    }
+    
     // User Management Routes
-    if (path === '/users/me' && httpMethod === 'GET') {
+    else if (path === '/users/me' && httpMethod === 'GET') {
       response = await getUserProfile(userId);
     }
     else if (path === '/users/update-role' && httpMethod === 'POST') {
@@ -139,7 +159,7 @@ const originalHandler = async (event) => {
     }
     
     else {
-      return formatResponse(404, { message: 'Route not found' });
+      return formatResponse(404, { message: 'Route not found', path: path, method: httpMethod });
     }
 
     return formatResponse(200, response);
@@ -164,7 +184,8 @@ exports.handler = async (event, context) => {
   return originalHandler(event);
 };
 
-// Blockchain Integration Functions
+// ===== BLOCKCHAIN INTEGRATION FUNCTIONS =====
+
 async function registerProductOnBlockchain(productId, name, batch, manufacturer) {
   try {
     const gasEstimate = await contract.methods.registerProduct(productId, name, batch, manufacturer).estimateGas({
@@ -222,7 +243,151 @@ async function getProductFromBlockchain(productId) {
   }
 }
 
-// Enhanced Product Management with Blockchain
+// ===== USER MANAGEMENT FUNCTIONS =====
+
+async function getUserProfile(userId) {
+  const params = {
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `USER#${userId}`,
+      SK: 'PROFILE'
+    }
+  };
+
+  const result = await dynamoDB.get(params).promise();
+  
+  if (!result.Item) {
+    return {
+      userId: userId,
+      username: "user_" + userId.substring(0, 8),
+      role: USER_ROLES.CONSUMER
+    };
+  }
+  
+  return {
+    userId: result.Item.userId,
+    username: result.Item.username,
+    email: result.Item.email,
+    name: result.Item.name,
+    role: result.Item.role,
+    createdAt: result.Item.createdAt
+  };
+}
+
+async function updateUserRole(userId, requestBody) {
+  try {
+    const { role } = requestBody;
+    
+    if (!Object.values(USER_ROLES).includes(role)) {
+      throw new Error('Invalid role');
+    }
+    
+    const timestamp = new Date().toISOString();
+    
+    // Update in DynamoDB
+    await dynamoDB.update({
+      TableName: TABLE_NAME,
+      Key: {
+        PK: `USER#${userId}`,
+        SK: 'PROFILE'
+      },
+      UpdateExpression: 'SET #role = :role, updatedAt = :updatedAt',
+      ExpressionAttributeNames: {
+        '#role': 'role'
+      },
+      ExpressionAttributeValues: {
+        ':role': role,
+        ':updatedAt': timestamp
+      }
+    }).promise();
+    
+    // Update custom attribute in Cognito
+    if (USER_POOL_ID) {
+      try {
+        await cognito.adminUpdateUserAttributes({
+          UserPoolId: USER_POOL_ID,
+          Username: userId,
+          UserAttributes: [
+            {
+              Name: 'custom:user_role',
+              Value: role
+            }
+          ]
+        }).promise();
+      } catch (cognitoError) {
+        console.warn('Could not update Cognito custom attribute:', cognitoError);
+      }
+    }
+    
+    return {
+      message: 'User role updated successfully',
+      role: role
+    };
+    
+  } catch (error) {
+    console.error('Error updating user role:', error);
+    throw new Error('Could not update user role');
+  }
+}
+
+// ===== PRODUCT MANAGEMENT FUNCTIONS =====
+
+async function getProducts(userId, userRole, queryParams) {
+  const scope = queryParams?.scope || 'all';
+  let params;
+  
+  if (scope === 'personal' && userRole === USER_ROLES.MANUFACTURER) {
+    // Get manufacturer's products
+    params = {
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: {
+        ':pk': `USER#${userId}`,
+        ':sk': 'PRODUCT#'
+      }
+    };
+  } else if (scope === 'inventory' && userRole === USER_ROLES.RETAILER) {
+    // Get retailer's inventory
+    params = {
+      TableName: TABLE_NAME,
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'GSI1PK = :pk',
+      ExpressionAttributeValues: {
+        ':pk': `RETAILER#${userId}`
+      }
+    };
+  } else {
+    // Get all public products
+    params = {
+      TableName: TABLE_NAME,
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'GSI1PK = :pk',
+      ExpressionAttributeValues: {
+        ':pk': 'TYPE#PRODUCT'
+      }
+    };
+  }
+  
+  const result = await dynamoDB.query(params).promise();
+  
+  const products = result.Items.map(item => ({
+    id: item.productId || item.SK.split('#')[1],
+    name: item.name,
+    category: item.category,
+    description: item.description,
+    batch: item.batch,
+    quantity: item.quantity || 0,
+    price: item.price || 0,
+    manufacturer: item.manufacturer || item.manufacturerName,
+    manufacturerId: item.manufacturerId,
+    blockchainTxHash: item.blockchainTxHash,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
+  
+  return { products };
+}
+
 async function createProductWithBlockchain(userId, userRole, productData) {
   if (userRole !== USER_ROLES.MANUFACTURER) {
     throw new Error('Only manufacturers can create products');
@@ -379,7 +544,7 @@ async function updateProductWithBlockchain(userId, userRole, productId, updateDa
     }
   }
   
-  // Handle other updates (same as original function)
+  // Handle other updates
   const timestamp = new Date().toISOString();
   const { name, category, description, quantity, price } = updateData;
   
@@ -426,6 +591,191 @@ async function updateProductWithBlockchain(userId, userRole, productId, updateDa
   }).promise();
   
   return { message: 'Product updated successfully' };
+}
+
+async function deleteProduct(userId, userRole, productId) {
+  if (userRole !== USER_ROLES.MANUFACTURER) {
+    throw new Error('Only manufacturers can delete products');
+  }
+  
+  await dynamoDB.delete({
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `USER#${userId}`,
+      SK: `PRODUCT#${productId}`
+    },
+    ConditionExpression: 'attribute_exists(PK)'
+  }).promise();
+  
+  return { message: 'Product deleted successfully' };
+}
+
+// ===== ORDER MANAGEMENT FUNCTIONS =====
+
+async function getOrders(userId, userRole, queryParams) {
+  const type = queryParams?.type || 'all';
+  
+  let params = {
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+    ExpressionAttributeValues: {
+      ':pk': `USER#${userId}`,
+      ':sk': 'ORDER#'
+    }
+  };
+  
+  if (type !== 'all') {
+    params.FilterExpression = '#type = :type';
+    params.ExpressionAttributeNames = { '#type': 'type' };
+    params.ExpressionAttributeValues[':type'] = type;
+  }
+  
+  const result = await dynamoDB.query(params).promise();
+  
+  const orders = result.Items.map(item => ({
+    id: item.orderId || item.SK.split('#')[1],
+    type: item.type,
+    productId: item.productId,
+    productName: item.productName,
+    quantity: item.quantity,
+    recipientId: item.recipientId,
+    recipientName: item.recipientName,
+    status: item.status,
+    notes: item.notes,
+    date: item.createdAt?.split('T')[0] || item.createdAt,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
+  
+  return { orders };
+}
+
+async function createOrderWithBlockchain(userId, userRole, orderData) {
+  const allowedTypes = {
+    [USER_ROLES.MANUFACTURER]: ['export'],
+    [USER_ROLES.RETAILER]: ['import', 'sale']
+  };
+  
+  if (!allowedTypes[userRole] || !allowedTypes[userRole].includes(orderData.type)) {
+    throw new Error('You do not have permission to create this type of order');
+  }
+  
+  const { type, productId, quantity, recipientId, notes } = orderData;
+  
+  if (!productId || !quantity) {
+    throw new Error('Product ID and quantity are required');
+  }
+  
+  // Get product info
+  const product = await getProductWithBlockchain(userId, userRole, productId);
+  
+  const orderId = uuidv4();
+  const timestamp = new Date().toISOString();
+  
+  const orderItem = {
+    PK: `USER#${userId}`,
+    SK: `ORDER#${orderId}`,
+    GSI1PK: `TYPE#ORDER#${type.toUpperCase()}`,
+    GSI1SK: timestamp,
+    orderId,
+    type,
+    productId,
+    productName: product.name,
+    quantity: parseInt(quantity),
+    recipientId,
+    status: 'pending',
+    notes: notes || '',
+    createdBy: userId,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  
+  await dynamoDB.put({
+    TableName: TABLE_NAME,
+    Item: orderItem
+  }).promise();
+  
+  // Create trace record
+  await createTraceRecord(productId, type, userId, orderId, {
+    stage: type === 'export' ? 'Xuất hàng' : type === 'import' ? 'Nhập hàng' : 'Bán hàng',
+    quantity: parseInt(quantity),
+    recipientId,
+    notes
+  });
+  
+  return {
+    message: `${type === 'export' ? 'Export' : type === 'import' ? 'Import' : 'Sale'} order created successfully`,
+    order: {
+      id: orderId,
+      type,
+      productId,
+      productName: product.name,
+      quantity: parseInt(quantity),
+      recipientId,
+      status: 'pending',
+      createdAt: timestamp
+    }
+  };
+}
+
+async function updateOrderStatusWithBlockchain(userId, userRole, orderId, updateData) {
+  const { status } = updateData;
+  
+  if (!['pending', 'completed', 'cancelled'].includes(status)) {
+    throw new Error('Invalid status');
+  }
+  
+  const timestamp = new Date().toISOString();
+  
+  await dynamoDB.update({
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `USER#${userId}`,
+      SK: `ORDER#${orderId}`
+    },
+    UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
+    ExpressionAttributeNames: {
+      '#status': 'status'
+    },
+    ExpressionAttributeValues: {
+      ':status': status,
+      ':updatedAt': timestamp
+    },
+    ConditionExpression: 'attribute_exists(PK)'
+  }).promise();
+  
+  return { message: 'Order status updated successfully' };
+}
+
+// ===== TRACEABILITY FUNCTIONS =====
+
+async function createTraceRecord(productId, stage, companyId, orderId, details) {
+  const traceId = uuidv4();
+  const timestamp = new Date().toISOString();
+  
+  // Get company info
+  const companyInfo = await getUserProfile(companyId);
+  
+  const traceItem = {
+    PK: `PRODUCT#${productId}`,
+    SK: `TRACE#${timestamp}#${traceId}`,
+    GSI1PK: `TYPE#TRACE`,
+    GSI1SK: `${productId}#${timestamp}`,
+    traceId,
+    productId,
+    stage,
+    companyId,
+    companyName: companyInfo.name || companyInfo.username,
+    orderId,
+    timestamp,
+    details,
+    createdAt: timestamp
+  };
+  
+  await dynamoDB.put({
+    TableName: TABLE_NAME,
+    Item: traceItem
+  }).promise();
 }
 
 async function verifyProductOnBlockchain(productCode) {
@@ -515,39 +865,107 @@ async function traceProductWithBlockchain(productCode) {
   }
 }
 
-// Original functions (getUserProfile, updateUserRole, etc.) remain the same...
-// [Include all the original functions from the paste.txt here]
+// ===== COMPANY LISTING FUNCTIONS =====
 
-async function getUserProfile(userId) {
+async function getManufacturers() {
   const params = {
     TableName: TABLE_NAME,
-    Key: {
-      PK: `USER#${userId}`,
-      SK: 'PROFILE'
+    IndexName: 'GSI1',
+    KeyConditionExpression: 'GSI1PK = :pk',
+    FilterExpression: '#role = :role',
+    ExpressionAttributeNames: {
+      '#role': 'role'
+    },
+    ExpressionAttributeValues: {
+      ':pk': 'TYPE#USER',
+      ':role': USER_ROLES.MANUFACTURER
     }
   };
-
-  const result = await dynamoDB.get(params).promise();
   
-  if (!result.Item) {
+  const result = await dynamoDB.query(params).promise();
+  
+  const manufacturers = await Promise.all(result.Items.map(async (item) => {
+    // Count products for each manufacturer
+    const productCount = await dynamoDB.query({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+      ExpressionAttributeValues: {
+        ':pk': `USER#${item.userId}`,
+        ':sk': 'PRODUCT#'
+      },
+      Select: 'COUNT'
+    }).promise();
+    
     return {
-      userId: userId,
-      username: "user_" + userId.substring(0, 8),
-      role: USER_ROLES.CONSUMER
+      id: item.userId,
+      name: item.name || item.username,
+      location: item.location || 'Việt Nam',
+      products: productCount.Count,
+      rating: 4.5, // Mock rating for now
+      email: item.email
     };
-  }
+  }));
   
+  return { manufacturers };
+}
+
+async function getRetailers() {
+  const params = {
+    TableName: TABLE_NAME,
+    IndexName: 'GSI1',
+    KeyConditionExpression: 'GSI1PK = :pk',
+    FilterExpression: '#role = :role',
+    ExpressionAttributeNames: {
+      '#role': 'role'
+    },
+    ExpressionAttributeValues: {
+      ':pk': 'TYPE#USER',
+      ':role': USER_ROLES.RETAILER
+    }
+  };
+  
+  const result = await dynamoDB.query(params).promise();
+  
+  const retailers = result.Items.map(item => ({
+    id: item.userId,
+    name: item.name || item.username,
+    location: item.location || 'Việt Nam',
+    manufacturers: 5, // Mock count for now
+    rating: 4.3, // Mock rating for now
+    email: item.email
+  }));
+  
+  return { retailers };
+}
+
+// ===== UTILITY FUNCTIONS =====
+
+// Health Check Function
+async function healthCheck() {
   return {
-    userId: result.Item.userId,
-    username: result.Item.username,
-    email: result.Item.email,
-    name: result.Item.name,
-    role: result.Item.role,
-    createdAt: result.Item.createdAt
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0',
+    blockchain: {
+      connected: CONTRACT_ADDRESS ? true : false,
+      network: 'Sepolia',
+      contract: CONTRACT_ADDRESS || 'not-configured',
+      account: account?.address || 'not-configured'
+    },
+    database: {
+      connected: TABLE_NAME ? true : false,
+      table: TABLE_NAME || 'not-configured'
+    },
+    environment: {
+      infura_configured: INFURA_API_KEY ? true : false,
+      private_key_configured: PRIVATE_KEY ? true : false,
+      contract_configured: CONTRACT_ADDRESS ? true : false,
+      cognito_configured: USER_POOL_ID ? true : false
+    }
   };
 }
 
-// Handle Cognito Trigger (same as original)
+// Handle Cognito Trigger
 async function handleCognitoTrigger(event, context) {
   try {
     if (event.triggerSource === 'PostConfirmation_ConfirmSignUp') {
