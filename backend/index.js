@@ -1,6 +1,6 @@
 const AWS = require('aws-sdk');
 const { v4: uuidv4 } = require('uuid');
-const Web3 = require('web3');
+const { Web3 } = require('web3');
 
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const cognito = new AWS.CognitoIdentityServiceProvider();
