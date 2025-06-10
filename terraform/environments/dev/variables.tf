@@ -49,7 +49,7 @@ variable "public_subnets" {
 variable "app_version" {
   description = "Version of the application"
   type        = string
-  default = "7c2ba16e757e7e0227cbb33c53a1c4357cbb91f3"
+  default = "086792de4482df82194c457fa8ae4719f8fe3592"
 }
 
 variable "certificate_arn" {
