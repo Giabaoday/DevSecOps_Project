@@ -10,6 +10,12 @@
     "dependencies": {
         "aws-sdk": "^2.1692.0",
         "uuid": "^11.1.0",
-        "web3": "^4.16.0"
+        "web3": "^1.10.4"
+    },
+    "overrides": {
+        "ws": "^8.17.1"
+    },
+    "resolutions": {
+        "ws": "^8.17.1"
     }
 }
