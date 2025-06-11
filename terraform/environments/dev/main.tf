@@ -89,7 +89,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "POST /users/update-role" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -106,7 +106,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "POST /products" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -114,7 +114,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "GET /products/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -122,7 +122,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "PUT /products/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -130,7 +130,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "DELETE /products/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -147,7 +147,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "POST /orders" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -155,7 +155,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "PUT /orders/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -172,7 +172,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "GET /trace" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -189,7 +189,7 @@ module "api_gateway" {
       }
       authorizer_key = "cognito"
     }
-    
+
     "GET /retailers" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
@@ -206,7 +206,7 @@ module "api_gateway" {
       }
       # No authorizer - public endpoint for consumers
     }
-    
+
     "GET /public/trace" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn

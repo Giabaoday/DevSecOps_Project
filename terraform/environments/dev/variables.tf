@@ -49,7 +49,7 @@ variable "public_subnets" {
 variable "app_version" {
   description = "Version of the application"
   type        = string
-  default = "e827ed55f12de32e3787c8c0b68401a3477dc15a"
+  default     = "e827ed55f12de32e3787c8c0b68401a3477dc15a"
 }
 
 variable "certificate_arn" {
@@ -68,10 +68,4 @@ variable "cognito_client_id" {
   description = "ID of the Cognito User Pool Client"
   type        = string
   default     = "2qkqfoug89p9qhfggcsflg4m24"
-}
-
-variable "blockchain_endpoint" {
-  description = "Endpoint for private blockchain"
-  type        = string
-  default     = "http://blockchain-service:8545" # Sẽ được cấu hình qua Kubernetes service
 }
