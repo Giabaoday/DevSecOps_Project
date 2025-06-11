@@ -12,6 +12,13 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_secretsmanager_secret" "blockchain_secrets" {
+  name = var.blockchain_secrets_name
+}
+
+data "aws_secretsmanager_secret_version" "blockchain_secrets" {
+  secret_id = data.aws_secretsmanager_secret.blockchain_secrets.id
+}
 
 # Tạo S3 buckets
 module "lambda_deployment_bucket" {
