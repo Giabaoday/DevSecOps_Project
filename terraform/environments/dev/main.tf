@@ -73,57 +73,168 @@ module "api_gateway" {
   api_name    = "${var.project_name}-api"
   aws_region  = var.aws_region
 
-  # Cognito config (được tạo thủ công hoặc bởi module khác)
+  # Cognito config
   cognito_user_pool_id     = var.cognito_user_pool_id
   cognito_client_id        = var.cognito_client_id
   cognito_user_pool        = { id = var.cognito_user_pool_id }
   cognito_user_pool_client = { id = var.cognito_client_id }
 
-  # Định nghĩa các routes
+  # Updated routes cho blockchain traceability system
   routes = {
+    # 👤 User Management Routes
     "GET /users/me" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
       authorizer_key = "cognito"
-    },
-    "POST /users/register" = {
+    }
+    
+    "POST /users/update-role" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
       authorizer_key = "cognito"
-    },
-    "GET /dishes" = {
+    }
+
+    # 🏭 Product Management Routes (Blockchain Integration)
+    "GET /products" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
       authorizer_key = "cognito"
-    },
-    "POST /dishes" = {
+    }
+    
+    "POST /products" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
       authorizer_key = "cognito"
-    },
-    "GET /dishes/random" = {
+    }
+    
+    "GET /products/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
       authorizer_key = "cognito"
-    },
-    "GET /dishes/{id}" = {
+    }
+    
+    "PUT /products/{id}" = {
       integration = {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
-    authorizer_key = "cognito" }
+      authorizer_key = "cognito"
+    }
+    
+    "DELETE /products/{id}" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+
+    # 📦 Order Management Routes
+    "GET /orders" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+    
+    "POST /orders" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+    
+    "PUT /orders/{id}" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+
+    # 🔍 Blockchain Verification & Tracing Routes
+    "GET /verify" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+    
+    "GET /trace" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+
+    # 🏢 Company Management Routes
+    "GET /manufacturers" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+    
+    "GET /retailers" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      authorizer_key = "cognito"
+    }
+
+    # 🌐 Public Routes (No Authentication Required)
+    "GET /public/verify" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      # No authorizer - public endpoint for consumers
+    }
+    
+    "GET /public/trace" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      # No authorizer - public endpoint for consumers
+    }
+
+    # 📊 Health Check Route
+    "GET /health" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      # No authorizer - health check
+    }
+
+    # 🔧 CORS Options Routes (Required for frontend)
+    "OPTIONS /{proxy+}" = {
+      integration = {
+        uri                    = module.lambda_service.lambda_function_arn
+        payload_format_version = "2.0"
+      }
+      # No authorizer - CORS preflight
+    }
   }
-  # Cấp quyền cho API Gateway để gọi Lambda functions
+
+  # Lambda permissions
   lambda_permissions = {
     "lambda_service" = module.lambda_service.lambda_function_name
   }
@@ -131,5 +242,6 @@ module "api_gateway" {
   tags = {
     Environment = var.environment
     Project     = var.project_name
+    Purpose     = "Blockchain Traceability API"
   }
 }
