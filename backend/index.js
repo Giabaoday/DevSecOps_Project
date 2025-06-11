@@ -112,6 +112,81 @@ async function initializeBlockchain() {
   }
 }
 
+// ===== USER AUTHENTICATION & ROLE MANAGEMENT =====
+
+/**
+ * Get user profile and role from DynamoDB
+ * @param {string} userId - User ID from JWT token
+ * @returns {Promise<object>} User profile with role
+ */
+async function getUserProfileWithRole(userId) {
+  try {
+    const params = {
+      TableName: TABLE_NAME,
+      Key: {
+        PK: `USER#${userId}`,
+        SK: 'PROFILE'
+      }
+    };
+
+    const result = await dynamoDB.get(params).promise();
+    
+    if (!result.Item) {
+      // Create default user profile if doesn't exist
+      const defaultUser = {
+        userId: userId,
+        username: "user_" + userId.substring(0, 8),
+        role: USER_ROLES.CONSUMER,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Save default profile to DynamoDB
+      await dynamoDB.put({
+        TableName: TABLE_NAME,
+        Item: {
+          PK: `USER#${userId}`,
+          SK: 'PROFILE',
+          GSI1PK: 'TYPE#USER',
+          GSI1SK: defaultUser.username,
+          ...defaultUser,
+          updatedAt: defaultUser.createdAt
+        }
+      }).promise();
+      
+      console.log('Created default user profile for:', userId);
+      return defaultUser;
+    }
+    
+    return {
+      userId: result.Item.userId,
+      username: result.Item.username,
+      email: result.Item.email,
+      name: result.Item.name,
+      role: result.Item.role,
+      createdAt: result.Item.createdAt,
+      updatedAt: result.Item.updatedAt
+    };
+  } catch (error) {
+    console.error('Error getting user profile:', error);
+    // Return default user if there's an error
+    return {
+      userId: userId,
+      username: "user_" + userId.substring(0, 8),
+      role: USER_ROLES.CONSUMER
+    };
+  }
+}
+
+/**
+ * Check if user has required role for operation
+ * @param {string} userRole - Current user role
+ * @param {string[]} allowedRoles - Array of allowed roles
+ * @returns {boolean} Whether user has permission
+ */
+function hasRole(userRole, allowedRoles) {
+  return allowedRoles.includes(userRole);
+}
+
 const originalHandler = async (event) => {
   console.log('API Gateway Event:', JSON.stringify(event, null, 2));
 
@@ -125,14 +200,35 @@ const originalHandler = async (event) => {
     const path = event.path || event.resource || routeKey?.split(' ')[1];
     
     // Extract user ID from Cognito JWT token
-    let userId = 'anonymous';
+    let userId = null;
+    let userProfile = null;
     let userRole = null;
-    if (requestContext?.authorizer?.jwt?.claims?.sub) {
-      userId = requestContext.authorizer.jwt.claims.sub;
-      userRole = requestContext.authorizer.jwt.claims['custom:user_role'];
-    } else if (requestContext?.authorizer?.claims?.sub) {
-      userId = requestContext.authorizer.claims.sub;
-      userRole = requestContext.authorizer.claims['custom:user_role'];
+    
+    // Check if route requires authentication
+    const publicRoutes = ['/health', '/public/verify', '/public/trace'];
+    const isPublicRoute = publicRoutes.some(route => path.includes(route)) || httpMethod === 'OPTIONS';
+    
+    if (!isPublicRoute) {
+      // Extract user ID from JWT claims
+      if (requestContext?.authorizer?.jwt?.claims?.sub) {
+        userId = requestContext.authorizer.jwt.claims.sub;
+      } else if (requestContext?.authorizer?.claims?.sub) {
+        userId = requestContext.authorizer.claims.sub;
+      }
+      
+      if (!userId) {
+        return formatResponse(401, { message: 'Unauthorized: Missing user ID' });
+      }
+      
+      // Get user profile and role from DynamoDB
+      userProfile = await getUserProfileWithRole(userId);
+      userRole = userProfile.role;
+      
+      console.log('User authenticated:', {
+        userId: userId,
+        username: userProfile.username,
+        role: userRole
+      });
     }
     
     const parsedBody = body ? (typeof body === 'string' ? JSON.parse(body) : body) : {};
@@ -161,18 +257,21 @@ const originalHandler = async (event) => {
     
     // User Management Routes
     else if (path === '/users/me' && httpMethod === 'GET') {
-      response = await getUserProfile(userId);
+      response = userProfile;
     }
     else if (path === '/users/update-role' && httpMethod === 'POST') {
       response = await updateUserRole(userId, parsedBody);
     }
     
-    // Product Management Routes with Blockchain
+    // Product Management Routes with Role Checking
     else if (path === '/products' && httpMethod === 'GET') {
       response = await getProducts(userId, userRole, queryStringParameters);
     }
     else if (path === '/products' && httpMethod === 'POST') {
-      response = await createProductWithBlockchain(userId, userRole, parsedBody);
+      if (!hasRole(userRole, [USER_ROLES.MANUFACTURER])) {
+        return formatResponse(403, { message: 'Only manufacturers can create products' });
+      }
+      response = await createProductWithBlockchain(userId, userProfile, parsedBody);
     }
     else if (path?.startsWith('/products/') && httpMethod === 'GET') {
       const productId = pathParameters?.id;
@@ -180,10 +279,16 @@ const originalHandler = async (event) => {
     }
     else if (path?.startsWith('/products/') && httpMethod === 'PUT') {
       const productId = pathParameters?.id;
+      if (!hasRole(userRole, [USER_ROLES.MANUFACTURER])) {
+        return formatResponse(403, { message: 'Only manufacturers can update products' });
+      }
       response = await updateProductWithBlockchain(userId, userRole, productId, parsedBody);
     }
     else if (path?.startsWith('/products/') && httpMethod === 'DELETE') {
       const productId = pathParameters?.id;
+      if (!hasRole(userRole, [USER_ROLES.MANUFACTURER])) {
+        return formatResponse(403, { message: 'Only manufacturers can delete products' });
+      }
       response = await deleteProduct(userId, userRole, productId);
     }
     
@@ -193,15 +298,21 @@ const originalHandler = async (event) => {
       response = await verifyProductOnBlockchain(productCode);
     }
     
-    // Order Management Routes
+    // Order Management Routes with Role Checking
     else if (path === '/orders' && httpMethod === 'GET') {
       response = await getOrders(userId, userRole, queryStringParameters);
     }
     else if (path === '/orders' && httpMethod === 'POST') {
-      response = await createOrderWithBlockchain(userId, userRole, parsedBody);
+      if (!hasRole(userRole, [USER_ROLES.MANUFACTURER, USER_ROLES.RETAILER])) {
+        return formatResponse(403, { message: 'Only manufacturers and retailers can create orders' });
+      }
+      response = await createOrderWithBlockchain(userId, userProfile, parsedBody);
     }
     else if (path?.startsWith('/orders/') && httpMethod === 'PUT') {
       const orderId = pathParameters?.id;
+      if (!hasRole(userRole, [USER_ROLES.MANUFACTURER, USER_ROLES.RETAILER])) {
+        return formatResponse(403, { message: 'Only manufacturers and retailers can update orders' });
+      }
       response = await updateOrderStatusWithBlockchain(userId, userRole, orderId, parsedBody);
     }
     
@@ -306,35 +417,6 @@ async function getProductFromBlockchain(productId) {
 
 // ===== USER MANAGEMENT FUNCTIONS =====
 
-async function getUserProfile(userId) {
-  const params = {
-    TableName: TABLE_NAME,
-    Key: {
-      PK: `USER#${userId}`,
-      SK: 'PROFILE'
-    }
-  };
-
-  const result = await dynamoDB.get(params).promise();
-  
-  if (!result.Item) {
-    return {
-      userId: userId,
-      username: "user_" + userId.substring(0, 8),
-      role: USER_ROLES.CONSUMER
-    };
-  }
-  
-  return {
-    userId: result.Item.userId,
-    username: result.Item.username,
-    email: result.Item.email,
-    name: result.Item.name,
-    role: result.Item.role,
-    createdAt: result.Item.createdAt
-  };
-}
-
 async function updateUserRole(userId, requestBody) {
   try {
     const { role } = requestBody;
@@ -362,7 +444,7 @@ async function updateUserRole(userId, requestBody) {
       }
     }).promise();
     
-    // Update custom attribute in Cognito
+    // Update custom attribute in Cognito (optional, for consistency)
     if (USER_POOL_ID) {
       try {
         await cognito.adminUpdateUserAttributes({
@@ -449,19 +531,12 @@ async function getProducts(userId, userRole, queryParams) {
   return { products };
 }
 
-async function createProductWithBlockchain(userId, userRole, productData) {
-  if (userRole !== USER_ROLES.MANUFACTURER) {
-    throw new Error('Only manufacturers can create products');
-  }
-  
+async function createProductWithBlockchain(userId, userProfile, productData) {
   const { name, category, description, quantity = 0, price = 0, batch } = productData;
   
   if (!name || !category || !batch) {
     throw new Error('Product name, category, and batch are required');
   }
-  
-  // Get user info
-  const userInfo = await getUserProfile(userId);
   
   const productId = uuidv4();
   const timestamp = new Date().toISOString();
@@ -472,7 +547,7 @@ async function createProductWithBlockchain(userId, userRole, productData) {
       productId, 
       name, 
       batch, 
-      userInfo.name || userInfo.username
+      userProfile.name || userProfile.username
     );
     
     // Save to DynamoDB with blockchain reference
@@ -488,7 +563,7 @@ async function createProductWithBlockchain(userId, userRole, productData) {
       batch,
       quantity: parseInt(quantity) || 0,
       price: parseInt(price) || 0,
-      manufacturer: userInfo.name || userInfo.username,
+      manufacturer: userProfile.name || userProfile.username,
       manufacturerId: userId,
       blockchainTxHash: txHash,
       blockchainStatus: 'registered',
@@ -511,7 +586,7 @@ async function createProductWithBlockchain(userId, userRole, productData) {
         batch,
         quantity: parseInt(quantity) || 0,
         price: parseInt(price) || 0,
-        manufacturer: userInfo.name || userInfo.username,
+        manufacturer: userProfile.name || userProfile.username,
         blockchainTxHash: txHash,
         createdAt: timestamp
       }
@@ -569,10 +644,6 @@ async function getProductWithBlockchain(userId, userRole, productId) {
 }
 
 async function updateProductWithBlockchain(userId, userRole, productId, updateData) {
-  if (userRole !== USER_ROLES.MANUFACTURER) {
-    throw new Error('Only manufacturers can update products');
-  }
-  
   const { status } = updateData;
   
   if (status) {
@@ -655,10 +726,6 @@ async function updateProductWithBlockchain(userId, userRole, productId, updateDa
 }
 
 async function deleteProduct(userId, userRole, productId) {
-  if (userRole !== USER_ROLES.MANUFACTURER) {
-    throw new Error('Only manufacturers can delete products');
-  }
-  
   await dynamoDB.delete({
     TableName: TABLE_NAME,
     Key: {
@@ -711,13 +778,13 @@ async function getOrders(userId, userRole, queryParams) {
   return { orders };
 }
 
-async function createOrderWithBlockchain(userId, userRole, orderData) {
+async function createOrderWithBlockchain(userId, userProfile, orderData) {
   const allowedTypes = {
     [USER_ROLES.MANUFACTURER]: ['export'],
     [USER_ROLES.RETAILER]: ['import', 'sale']
   };
   
-  if (!allowedTypes[userRole] || !allowedTypes[userRole].includes(orderData.type)) {
+  if (!allowedTypes[userProfile.role] || !allowedTypes[userProfile.role].includes(orderData.type)) {
     throw new Error('You do not have permission to create this type of order');
   }
   
@@ -728,7 +795,7 @@ async function createOrderWithBlockchain(userId, userRole, orderData) {
   }
   
   // Get product info
-  const product = await getProductWithBlockchain(userId, userRole, productId);
+  const product = await getProductWithBlockchain(userId, userProfile.role, productId);
   
   const orderId = uuidv4();
   const timestamp = new Date().toISOString();
@@ -815,7 +882,7 @@ async function createTraceRecord(productId, stage, companyId, orderId, details) 
   const timestamp = new Date().toISOString();
   
   // Get company info
-  const companyInfo = await getUserProfile(companyId);
+  const companyInfo = await getUserProfileWithRole(companyId);
   
   const traceItem = {
     PK: `PRODUCT#${productId}`,
@@ -856,15 +923,26 @@ async function verifyProductOnBlockchain(productCode) {
     }
     
     // Get additional data from DynamoDB
-    const dbProduct = await getProductWithBlockchain(null, null, productCode);
-    
-    return {
-      verified: true,
-      productId: productCode,
-      blockchainData: blockchainData,
-      databaseData: dbProduct,
-      verificationTime: new Date().toISOString()
-    };
+    try {
+      const dbProduct = await getProductWithBlockchain(null, null, productCode);
+      return {
+        verified: true,
+        productId: productCode,
+        blockchainData: blockchainData,
+        databaseData: dbProduct,
+        verificationTime: new Date().toISOString()
+      };
+    } catch (dbError) {
+      // Product exists on blockchain but not in database
+      return {
+        verified: true,
+        productId: productCode,
+        blockchainData: blockchainData,
+        databaseData: null,
+        verificationTime: new Date().toISOString(),
+        note: 'Product verified on blockchain but not found in database'
+      };
+    }
   } catch (error) {
     return {
       verified: false,
