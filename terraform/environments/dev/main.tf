@@ -204,7 +204,7 @@ module "api_gateway" {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
-      # No authorizer - public endpoint for consumers
+      authorizer_key = null
     }
 
     "GET /public/trace" = {
@@ -212,7 +212,7 @@ module "api_gateway" {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
-      # No authorizer - public endpoint for consumers
+      authorizer_key = null
     }
 
     # 📊 Health Check Route
@@ -221,7 +221,7 @@ module "api_gateway" {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
-      # No authorizer - health check
+      authorizer_key = null
     }
 
     # 🔧 CORS Options Routes (Required for frontend)
@@ -230,7 +230,7 @@ module "api_gateway" {
         uri                    = module.lambda_service.lambda_function_arn
         payload_format_version = "2.0"
       }
-      # No authorizer - CORS preflight
+      authorizer_key = null
     }
   }
 
