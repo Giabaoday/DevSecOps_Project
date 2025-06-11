@@ -81,6 +81,18 @@ variable "additional_environment_variables" {
   default     = {}
 }
 
+variable "additional_policy_statements" {
+  description = "Additional IAM policy statements"
+  type        = any
+  default     = {}
+}
+
+variable "additional_iam_policies" {
+  description = "Additional IAM policy ARNs to attach to Lambda"
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Tags for Lambda function"
   type        = map(string)

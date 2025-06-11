@@ -12,6 +12,7 @@ provider "aws" {
   region = var.aws_region
 }
 
+
 # Tạo S3 buckets
 module "lambda_deployment_bucket" {
   source = "../../modules/s3"
@@ -38,6 +39,25 @@ module "tracer_table" {
   }
 }
 
+resource "aws_iam_policy" "lambda_secrets_policy" {
+  name        = "lambda-secrets-policy-${var.environment}"
+  description = "Allow Lambda to access Secrets Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = data.aws_secretsmanager_secret.blockchain_secrets.arn
+      }
+    ]
+  })
+}
+
 module "lambda_service" {
   source = "../../modules/lambda"
 
@@ -55,9 +75,14 @@ module "lambda_service" {
   dynamodb_arn   = module.tracer_table.table_arn
 
   additional_environment_variables = {
-    COGNITO_USER_POOL = var.cognito_user_pool_id
-    COGNITO_CLIENT_ID = var.cognito_client_id
+    COGNITO_USER_POOL       = var.cognito_user_pool_id
+    COGNITO_CLIENT_ID       = var.cognito_client_id
+    BLOCKCHAIN_SECRETS_NAME = var.blockchain_secrets_name
   }
+
+  additional_iam_policies = [
+    aws_iam_policy.lambda_secrets_policy.arn
+  ]
 
   tags = {
     Environment = var.environment

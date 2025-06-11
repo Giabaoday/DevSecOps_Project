@@ -24,20 +24,28 @@ module "lambda_function" {
   )
 
   attach_policy_statements = true
-  policy_statements = {
-    dynamodb = {
-      effect = "Allow",
-      actions = [
-        "dynamodb:GetItem",
-        "dynamodb:PutItem",
-        "dynamodb:UpdateItem",
-        "dynamodb:DeleteItem",
-        "dynamodb:Query",
-        "dynamodb:Scan"
-      ],
-      resources = [var.dynamodb_arn, "${var.dynamodb_arn}/index/*"]
-    }
-  }
+  policy_statements = merge(
+    {
+      dynamodb = {
+        effect = "Allow",
+        actions = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan"
+        ],
+        resources = [var.dynamodb_arn, "${var.dynamodb_arn}/index/*"]
+      }
+    },
+    var.additional_policy_statements
+  )
+
+  # Attach additional IAM policies if provided
+  attach_policies    = length(var.additional_iam_policies) > 0
+  policies           = var.additional_iam_policies
+  number_of_policies = length(var.additional_iam_policies)
 
   timeout     = var.timeout
   memory_size = var.memory_size

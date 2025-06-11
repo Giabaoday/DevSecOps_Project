@@ -4,12 +4,22 @@ const { Web3 } = require('web3');
 
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const cognito = new AWS.CognitoIdentityServiceProvider();
+const secretsManager = new AWS.SecretsManager();
+
+// Constants
+const TABLE_NAME = process.env.DYNAMODB_TABLE;
+const REGION = process.env.AWS_REGION || 'ap-southeast-1';
+const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
+const BLOCKCHAIN_SECRETS_NAME = process.env.BLOCKCHAIN_SECRETS_NAME || 'devsecops/blockchain';
 
 // Blockchain Configuration
-const INFURA_API_KEY = process.env.INFURA_API_KEY;
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
-const web3 = new Web3(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
+let blockchainInitialized = false;
+let INFURA_API_KEY = null;
+let PRIVATE_KEY = null;
+let CONTRACT_ADDRESS = null;
+let web3 = null;
+let account = null;
+let contract = null;
 
 // Contract ABI (từ ProductRegistry.sol)
 const CONTRACT_ABI = [
@@ -33,18 +43,20 @@ const CONTRACT_ABI = [
     "outputs": [{"name": "", "type": "string"}, {"name": "", "type": "string"}, {"name": "", "type": "string"}, {"name": "", "type": "string"}, {"name": "", "type": "uint256"}],
     "stateMutability": "view",
     "type": "function"
+  },
+  {
+    "anonymous": false,
+    "inputs": [{"indexed": false, "name": "productId", "type": "string"}, {"indexed": false, "name": "name", "type": "string"}, {"indexed": false, "name": "manufacturer", "type": "string"}],
+    "name": "ProductRegistered",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [{"indexed": false, "name": "productId", "type": "string"}, {"indexed": false, "name": "newStatus", "type": "string"}],
+    "name": "ProductStatusUpdated",
+    "type": "event"
   }
 ];
-
-// Initialize blockchain account
-const account = web3.eth.accounts.privateKeyToAccount('0x' + PRIVATE_KEY);
-web3.eth.accounts.wallet.add(account);
-const contract = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
-
-// Constants
-const TABLE_NAME = process.env.DYNAMODB_TABLE;
-const REGION = process.env.AWS_REGION || 'ap-southeast-1';
-const USER_POOL_ID = process.env.COGNITO_USER_POOL_ID;
 
 // User roles
 const USER_ROLES = {
@@ -53,8 +65,57 @@ const USER_ROLES = {
   RETAILER: 'retailer'
 };
 
+async function initializeBlockchain() {
+  if (blockchainInitialized) {
+    return;
+  }
+
+  try {
+    console.log('Initializing blockchain configuration...');
+    
+    const response = await secretsManager.getSecretValue({
+      SecretId: BLOCKCHAIN_SECRETS_NAME
+    }).promise();
+    
+    const secrets = JSON.parse(response.SecretString);
+    
+    INFURA_API_KEY = secrets.INFURA_API_KEY;
+    PRIVATE_KEY = secrets.PRIVATE_KEY;
+    CONTRACT_ADDRESS = secrets.CONTRACT_ADDRESS;
+    
+    // Validate required secrets
+    if (!INFURA_API_KEY || !PRIVATE_KEY || !CONTRACT_ADDRESS) {
+      console.error('Missing blockchain configuration:', {
+        infura: !!INFURA_API_KEY,
+        privateKey: !!PRIVATE_KEY,
+        contract: !!CONTRACT_ADDRESS
+      });
+      throw new Error('Missing required blockchain configuration');
+    }
+    
+    // Initialize Web3
+    web3 = new Web3(`https://sepolia.infura.io/v3/${INFURA_API_KEY}`);
+    
+    // Initialize account
+    account = web3.eth.accounts.privateKeyToAccount('0x' + PRIVATE_KEY);
+    web3.eth.accounts.wallet.add(account);
+    
+    // Initialize contract
+    contract = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
+    
+    blockchainInitialized = true;
+    console.log('Blockchain initialized successfully');
+    
+  } catch (error) {
+    console.error('Failed to initialize blockchain:', error);
+    throw error;
+  }
+}
+
 const originalHandler = async (event) => {
   console.log('API Gateway Event:', JSON.stringify(event, null, 2));
+
+  await initializeBlockchain();
 
   try {
     const { requestContext, pathParameters, queryStringParameters, body } = event;

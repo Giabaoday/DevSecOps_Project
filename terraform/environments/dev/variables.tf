@@ -69,3 +69,9 @@ variable "cognito_client_id" {
   type        = string
   default     = "2qkqfoug89p9qhfggcsflg4m24"
 }
+
+variable "blockchain_secrets_name" {
+  description = "Name of the AWS Secrets Manager secret containing blockchain configuration"
+  type        = string
+  default     = "devsecops/blockchain"
+}
