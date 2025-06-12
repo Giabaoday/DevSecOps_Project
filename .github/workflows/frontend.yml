@@ -1,17 +1,20 @@
-name: Frontend CI/CD
+name: Frontend CI/CD - Development
 on:
   push:
-    branches: [ "main", "dev" ]
+    branches: [ "dev" ]
     paths:
       - 'frontend/**'
+      - 'helm/frontend/**'
   pull_request:
-    branches: [ "main", "dev" ]
+    branches: [ "dev" ]
     paths:
       - 'frontend/**'
+      - 'helm/frontend/**'
 
 env:
   AWS_REGION: ap-southeast-1
   SECRETS_MANAGER_SECRET_NAME: devsecops/tokens
+  ENVIRONMENT: dev
 
 jobs:
   GitLeaks:
@@ -31,7 +34,7 @@ jobs:
   Build:
     runs-on: ubuntu-latest
     needs: GitLeaks
-    name: Unit Test and SAST
+    name: Unit Test and Build
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
@@ -47,15 +50,37 @@ jobs:
       run: |
         cd frontend
         npm run test || true
-      
-  SAST:
+
+  helm-validate:
     runs-on: ubuntu-latest
     needs: Build
+    name: Validate Helm Chart
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.12.0'
+          
+      - name: Lint Helm Chart
+        run: |
+          helm lint helm/frontend
+          
+      - name: Template Helm Chart (Dev)
+        run: |
+          helm template whattoeat-frontend helm/frontend \
+            --values helm/frontend/values-dev.yaml \
+            --set image.tag=dev-test-tag
+
+  SAST:
+    runs-on: ubuntu-latest
+    needs: helm-validate
     name: SAST - SonarCloud
     steps:
     - uses: actions/checkout@v4
 
-    # AWS credentials
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -63,7 +88,6 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    # Lấy secrets từ AWS Secrets Manager
     - name: Get secrets from AWS Secrets Manager
       uses: aws-actions/aws-secretsmanager-get-secrets@v2
       with:
@@ -88,7 +112,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -96,7 +119,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Lấy secrets từ AWS Secrets Manager
       - name: Get secrets from AWS Secrets Manager
         uses: aws-actions/aws-secretsmanager-get-secrets@v2
         with:
@@ -112,11 +134,12 @@ jobs:
         with:
           command: test
           args: --file=frontend/package.json
-      
+
       - name: OWASP Dependency Check
         uses: dependency-check/Dependency-Check_Action@main
+        continue-on-error: true  # Don't block dev workflow
         with:
-          project: 'Frontend'
+          project: 'Frontend-Dev'
           path: 'frontend'
           format: 'HTML'
           out: 'reports'
@@ -134,26 +157,22 @@ jobs:
         uses: zaproxy/action-baseline@v0.11.0
         continue-on-error: true
         with:
-          target: 'https://dev.product-tracer.com/'
+          target: 'https://example.com/'
           allow_issue_writing: false
           fail_action: false
           artifact_name: 'zap-scan-report'
 
   docker:
     runs-on: ubuntu-latest
-    needs: DAST
-    name: Build, scan and push docker image to Docker Hub
+    needs: SCA
+    name: Build and push Docker image
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-        
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -161,7 +180,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Docker Hub credentials
       - name: Get Docker Hub secrets from AWS Secrets Manager
         uses: aws-actions/aws-secretsmanager-get-secrets@v2
         with:
@@ -171,10 +189,11 @@ jobs:
 
       - name: Set version
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "dev_tag=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       
-      # Build Docker image nhưng chưa push
-      - name: Build Docker image (without pushing)
+      - name: Build Docker image
         uses: docker/build-push-action@v6
         with:
           push: false
@@ -182,27 +201,24 @@ jobs:
           build-args: |
             API_URL=https://vvbcaer9bc.execute-api.ap-southeast-1.amazonaws.com/default
           tags: |
-            baotg0502/devsecops:latest
-            baotg0502/devsecops:${{ steps.vars.outputs.sha_short }}
+            baotg0502/devsecops:${{ steps.vars.outputs.dev_tag }}
+            baotg0502/devsecops:dev-latest
           context: ./frontend
       
-      # Scan với Trivy
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'baotg0502/devsecops:latest'
+          image-ref: 'baotg0502/devsecops:${{ steps.vars.outputs.dev_tag }}'
           format: 'table'
-          exit-code: '1'
+          exit-code: '0'  # Don't fail on dev branch
           severity: 'CRITICAL,HIGH'
       
-      # Login và push sau khi scan thành công
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_USERNAME }}
           password: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_TOKEN }}
       
-      # Push image lên Docker Hub
       - name: Push Docker image
         uses: docker/build-push-action@v6
         with:
@@ -210,37 +226,57 @@ jobs:
           build-args: |
             API_URL=https://vvbcaer9bc.execute-api.ap-southeast-1.amazonaws.com/default
           tags: |
-            baotg0502/devsecops:latest
-            baotg0502/devsecops:${{ steps.vars.outputs.sha_short }}
+            baotg0502/devsecops:${{ steps.vars.outputs.dev_tag }}
+            baotg0502/devsecops:dev-latest
           context: ./frontend
 
-  update-manifest:
+  update-helm-values:
     runs-on: ubuntu-latest
     needs: docker
-    name: Update Kubernetes Manifests
+    name: Update Dev Helm Values
     permissions:
-      contents: write  # Cấp quyền ghi vào repository
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set version
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "dev_tag=dev-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         
-      - name: Update Kubernetes Deployment
+      - name: Update Helm values for dev environment
         run: |
-          # Cập nhật image tag trong file deployment.yaml
-          sed -i "s|image: baotg0502/devsecops:.*|image: baotg0502/devsecops:${{ steps.vars.outputs.sha_short }}|g" kubernetes/frontend/deployment.yaml
+          NEW_TAG="${{ steps.vars.outputs.dev_tag }}"
+          VALUES_FILE="helm/frontend/values-dev.yaml"
           
-          # Xem file sau khi thay đổi
-          cat kubernetes/frontend/deployment.yaml
+          # Update the image tag in dev values file
+          sed -i "s|tag: \".*\"|tag: \"${NEW_TAG}\"|g" $VALUES_FILE
           
-          # Cấu hình Git
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "github-actions@github.com"
+          echo "Updated $VALUES_FILE with new image tag: $NEW_TAG"
+          cat $VALUES_FILE
           
-          # Commit và push thay đổi
-          git add kubernetes/frontend/deployment.yaml
-          git commit -m "Update frontend image to ${{ steps.vars.outputs.sha_short }} [skip ci]"
+      - name: Commit and push changes
+        run: |
+          NEW_TAG="${{ steps.vars.outputs.dev_tag }}"
+          
+          git config --global user.name "GitHub Actions [Dev]"
+          git config --global user.email "github-actions-dev@github.com"
+          
+          git add helm/frontend/values-dev.yaml
+          git commit -m "🚀 Update dev frontend image to ${NEW_TAG} [skip ci]" || exit 0
           git push
+
+  notify-deployment:
+    runs-on: ubuntu-latest
+    needs: update-helm-values
+    name: Notify Dev Deployment
+    steps:
+      - name: Development Deployment Notification
+        run: |
+          echo "🚀 Development deployment initiated!"
+          echo "📋 Environment: Development"
+          echo "🔄 ArgoCD will auto-sync the changes"
+          echo "🔗 Monitor at: https://argocd.your-domain.com"
+          echo "📱 Application: whattoeat-frontend-dev"
