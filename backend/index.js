@@ -21,7 +21,7 @@ let web3 = null;
 let account = null;
 let contract = null;
 
-// Contract ABI (từ ProductRegistry.sol)
+// Enhanced Contract ABI with trace functions
 const CONTRACT_ABI = [
   {
     "inputs": [{"name": "productId", "type": "string"}, {"name": "name", "type": "string"}, {"name": "batch", "type": "string"}, {"name": "manufacturer", "type": "string"}],
@@ -33,6 +33,13 @@ const CONTRACT_ABI = [
   {
     "inputs": [{"name": "productId", "type": "string"}, {"name": "newStatus", "type": "string"}],
     "name": "updateProductStatus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"name": "productId", "type": "string"}, {"name": "stage", "type": "string"}, {"name": "company", "type": "string"}, {"name": "location", "type": "string"}],
+    "name": "addTraceRecord",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -54,6 +61,12 @@ const CONTRACT_ABI = [
     "anonymous": false,
     "inputs": [{"indexed": false, "name": "productId", "type": "string"}, {"indexed": false, "name": "newStatus", "type": "string"}],
     "name": "ProductStatusUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [{"indexed": false, "name": "productId", "type": "string"}, {"indexed": false, "name": "stage", "type": "string"}, {"indexed": false, "name": "company", "type": "string"}],
+    "name": "TraceRecordAdded",
     "type": "event"
   }
 ];
@@ -83,7 +96,6 @@ async function initializeBlockchain() {
     PRIVATE_KEY = secrets.PRIVATE_KEY;
     CONTRACT_ADDRESS = secrets.CONTRACT_ADDRESS;
     
-    // Validate required secrets
     if (!INFURA_API_KEY || !PRIVATE_KEY || !CONTRACT_ADDRESS) {
       console.error('Missing blockchain configuration:', {
         infura: !!INFURA_API_KEY,
@@ -93,23 +105,18 @@ async function initializeBlockchain() {
       throw new Error('Missing required blockchain configuration');
     }
     
-    // Initialize Web3 with v1.x syntax
     const providerUrl = `https://sepolia.infura.io/v3/${INFURA_API_KEY}`;
     web3 = new Web3(new Web3.providers.HttpProvider(providerUrl));
     
-    // Ensure private key format
     const formattedPrivateKey = PRIVATE_KEY.startsWith('0x') ? PRIVATE_KEY : '0x' + PRIVATE_KEY;
     
-    // Initialize account with Web3 v1.x
     account = web3.eth.accounts.privateKeyToAccount(formattedPrivateKey);
     web3.eth.accounts.wallet.add(account);
     web3.eth.defaultAccount = account.address;
     
-    // Test connection
     const networkId = await web3.eth.net.getId();
     console.log('Connected to network:', networkId);
     
-    // Check balance
     const balance = await web3.eth.getBalance(account.address);
     console.log('Account balance:', web3.utils.fromWei(balance, 'ether'), 'ETH');
     
@@ -117,7 +124,6 @@ async function initializeBlockchain() {
       console.warn('⚠️  Low account balance, transactions may fail');
     }
     
-    // Initialize contract
     contract = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
     
     blockchainInitialized = true;
@@ -125,19 +131,57 @@ async function initializeBlockchain() {
     
   } catch (error) {
     console.error('❌ Failed to initialize blockchain:', error);
-    // Don't throw error, allow app to continue without blockchain
     console.warn('⚠️  Continuing without blockchain functionality');
     blockchainInitialized = false;
   }
 }
 
-// ===== BLOCKCHAIN INTEGRATION FUNCTIONS (FIXED) =====
+// ===== ENHANCED BLOCKCHAIN FUNCTIONS =====
+
+async function addTraceRecordToBlockchain(productId, stage, company, location) {
+  try {
+    console.log('🔗 Adding trace record to blockchain:', { productId, stage, company, location });
+    
+    const params = [
+      String(productId).trim(),
+      String(stage).trim(), 
+      String(company).trim(),
+      String(location).trim()
+    ];
+    
+    const gasPrice = await web3.eth.getGasPrice();
+    
+    let gasEstimate;
+    try {
+      gasEstimate = await contract.methods.addTraceRecord(...params).estimateGas({
+        from: account.address
+      });
+    } catch (estimateError) {
+      console.warn('⚠️  Gas estimation failed for trace record:', estimateError.message);
+      gasEstimate = 250000;
+    }
+    
+    const txOptions = {
+      from: account.address,
+      gas: Math.floor(Number(gasEstimate) * 1.2),
+      gasPrice: String(gasPrice)
+    };
+    
+    const tx = await contract.methods.addTraceRecord(...params).send(txOptions);
+    
+    console.log('✅ Trace record added to blockchain:', tx.transactionHash);
+    return tx.transactionHash;
+    
+  } catch (error) {
+    console.error('❌ Blockchain trace record error:', error);
+    throw new Error('Failed to add trace record to blockchain: ' + error.message);
+  }
+}
 
 async function registerProductOnBlockchain(productId, name, batch, manufacturer) {
   try {
     console.log('🔗 Registering product on blockchain:', { productId, name, batch, manufacturer });
     
-    // Ensure all parameters are strings and properly formatted
     const params = [
       String(productId).trim(),
       String(name).trim(), 
@@ -145,32 +189,24 @@ async function registerProductOnBlockchain(productId, name, batch, manufacturer)
       String(manufacturer).trim()
     ];
     
-    // Get current gas price and convert properly
     const gasPrice = await web3.eth.getGasPrice();
-    console.log('⛽ Current gas price:', gasPrice);
     
-    // Estimate gas with error handling
     let gasEstimate;
     try {
       gasEstimate = await contract.methods.registerProduct(...params).estimateGas({
         from: account.address
       });
-      console.log('📊 Gas estimate:', gasEstimate);
     } catch (estimateError) {
       console.warn('⚠️  Gas estimation failed, using default:', estimateError.message);
-      gasEstimate = 300000; // Safe default
+      gasEstimate = 300000;
     }
     
-    // Build transaction options with proper number conversion
     const txOptions = {
       from: account.address,
-      gas: Math.floor(Number(gasEstimate) * 1.2), // Add 20% buffer and ensure integer
-      gasPrice: String(gasPrice) // Keep as string to avoid BigInt issues
+      gas: Math.floor(Number(gasEstimate) * 1.2),
+      gasPrice: String(gasPrice)
     };
     
-    console.log('📝 Transaction options:', txOptions);
-    
-    // Send transaction with Web3 v1.x syntax
     const tx = await contract.methods.registerProduct(...params).send(txOptions);
     
     console.log('✅ Product registered on blockchain:', tx.transactionHash);
@@ -179,7 +215,6 @@ async function registerProductOnBlockchain(productId, name, batch, manufacturer)
   } catch (error) {
     console.error('❌ Blockchain registration error:', error);
     
-    // Provide more specific error messages
     if (error.message.includes('insufficient funds')) {
       throw new Error('Insufficient funds for blockchain transaction');
     } else if (error.message.includes('gas')) {
@@ -200,10 +235,8 @@ async function updateProductStatusOnBlockchain(productId, status) {
     
     const params = [String(productId).trim(), String(status).trim()];
     
-    // Get gas price
     const gasPrice = await web3.eth.getGasPrice();
     
-    // Estimate gas
     let gasEstimate;
     try {
       gasEstimate = await contract.methods.updateProductStatus(...params).estimateGas({
@@ -211,7 +244,7 @@ async function updateProductStatusOnBlockchain(productId, status) {
       });
     } catch (estimateError) {
       console.warn('⚠️  Gas estimation failed for status update:', estimateError.message);
-      gasEstimate = 200000; // Safe default for status update
+      gasEstimate = 200000;
     }
     
     const txOptions = {
@@ -244,13 +277,11 @@ async function getProductFromBlockchain(productId) {
     
     const result = await contract.methods.getProduct(String(productId).trim()).call();
     
-    // Handle the returned array properly
     if (!result || result.length < 5) {
       console.log('📭 Product not found on blockchain');
       return null;
     }
     
-    // Check if product exists (name should not be empty)
     if (!result[0] || result[0] === '') {
       console.log('📭 Empty product data on blockchain');
       return null;
@@ -272,13 +303,12 @@ async function getProductFromBlockchain(productId) {
       return null;
     }
     
-    // Don't throw error for read operations, just return null
     console.warn('⚠️  Failed to read from blockchain, returning null');
     return null;
   }
 }
 
-// ===== USER AUTHENTICATION & ROLE MANAGEMENT =====
+// ===== USER MANAGEMENT FUNCTIONS =====
 
 async function getUserProfileWithRole(userId) {
   try {
@@ -293,7 +323,6 @@ async function getUserProfileWithRole(userId) {
     const result = await dynamoDB.get(params).promise();
     
     if (!result.Item) {
-      // Create default user profile if doesn't exist
       const defaultUser = {
         userId: userId,
         username: "user_" + userId.substring(0, 8),
@@ -301,7 +330,6 @@ async function getUserProfileWithRole(userId) {
         createdAt: new Date().toISOString()
       };
       
-      // Save default profile to DynamoDB
       await dynamoDB.put({
         TableName: TABLE_NAME,
         Item: {
@@ -329,7 +357,6 @@ async function getUserProfileWithRole(userId) {
     };
   } catch (error) {
     console.error('Error getting user profile:', error);
-    // Return default user if there's an error
     return {
       userId: userId,
       username: "user_" + userId.substring(0, 8),
@@ -342,10 +369,93 @@ function hasRole(userRole, allowedRoles) {
   return allowedRoles.includes(userRole);
 }
 
+// ===== INVENTORY MANAGEMENT =====
+
+async function updateInventory(userId, productId, quantityChange, operation) {
+  try {
+    console.log('📦 Updating inventory:', { userId, productId, quantityChange, operation });
+    
+    // Get current inventory
+    const currentInventory = await dynamoDB.get({
+      TableName: TABLE_NAME,
+      Key: {
+        PK: `USER#${userId}`,
+        SK: `INVENTORY#${productId}`
+      }
+    }).promise();
+    
+    const currentQuantity = currentInventory.Item?.quantity || 0;
+    const newQuantity = operation === 'add' ? currentQuantity + quantityChange : currentQuantity - quantityChange;
+    
+    if (newQuantity < 0) {
+      throw new Error('Insufficient inventory quantity');
+    }
+    
+    // Update inventory
+    await dynamoDB.put({
+      TableName: TABLE_NAME,
+      Item: {
+        PK: `USER#${userId}`,
+        SK: `INVENTORY#${productId}`,
+        GSI1PK: 'TYPE#INVENTORY',
+        GSI1SK: `${userId}#${productId}`,
+        userId: userId,
+        productId: productId,
+        quantity: newQuantity,
+        updatedAt: new Date().toISOString()
+      }
+    }).promise();
+    
+    console.log(`✅ Inventory updated: ${currentQuantity} → ${newQuantity}`);
+    return newQuantity;
+    
+  } catch (error) {
+    console.error('Error updating inventory:', error);
+    throw error;
+  }
+}
+
+async function getInventory(userId, productId = null) {
+  try {
+    if (productId) {
+      // Get specific product inventory
+      const result = await dynamoDB.get({
+        TableName: TABLE_NAME,
+        Key: {
+          PK: `USER#${userId}`,
+          SK: `INVENTORY#${productId}`
+        }
+      }).promise();
+      
+      return result.Item ? result.Item.quantity : 0;
+    } else {
+      // Get all inventory for user
+      const result = await dynamoDB.query({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+        ExpressionAttributeValues: {
+          ':pk': `USER#${userId}`,
+          ':sk': 'INVENTORY#'
+        }
+      }).promise();
+      
+      return result.Items.map(item => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        updatedAt: item.updatedAt
+      }));
+    }
+  } catch (error) {
+    console.error('Error getting inventory:', error);
+    return productId ? 0 : [];
+  }
+}
+
+// ===== MAIN HANDLER =====
+
 const originalHandler = async (event) => {
   console.log('🚀 API Gateway Event:', JSON.stringify(event, null, 2));
 
-  // Initialize blockchain (with fallback)
   await initializeBlockchain();
 
   try {
@@ -355,17 +465,14 @@ const originalHandler = async (event) => {
     const routeKey = event.routeKey || `${httpMethod} ${event.resource}`;
     const path = event.path || event.resource || routeKey?.split(' ')[1];
     
-    // Extract user ID from Cognito JWT token
     let userId = null;
     let userProfile = null;
     let userRole = null;
     
-    // Check if route requires authentication
     const publicRoutes = ['/health', '/public/verify', '/public/trace'];
     const isPublicRoute = publicRoutes.some(route => path.includes(route)) || httpMethod === 'OPTIONS';
     
     if (!isPublicRoute) {
-      // Extract user ID from JWT claims
       if (requestContext?.authorizer?.jwt?.claims?.sub) {
         userId = requestContext.authorizer.jwt.claims.sub;
       } else if (requestContext?.authorizer?.claims?.sub) {
@@ -376,7 +483,6 @@ const originalHandler = async (event) => {
         return formatResponse(401, { message: 'Unauthorized: Missing user ID' });
       }
       
-      // Get user profile and role from DynamoDB
       userProfile = await getUserProfileWithRole(userId);
       userRole = userProfile.role;
       
@@ -401,7 +507,7 @@ const originalHandler = async (event) => {
       return formatResponse(200, { message: 'CORS OK' });
     }
     
-    // Public Routes (No Authentication)
+    // Public Routes
     else if (path === '/public/verify' && httpMethod === 'GET') {
       const productCode = queryStringParameters?.code;
       response = await verifyProductOnBlockchain(productCode);
@@ -419,7 +525,7 @@ const originalHandler = async (event) => {
       response = await updateUserRole(userId, parsedBody);
     }
     
-    // Product Management Routes with Role Checking
+    // Product Management Routes
     else if (path === '/products' && httpMethod === 'GET') {
       response = await getProducts(userId, userRole, queryStringParameters);
     }
@@ -454,7 +560,7 @@ const originalHandler = async (event) => {
       response = await verifyProductOnBlockchain(productCode);
     }
     
-    // Order Management Routes with Role Checking
+    // Order Management Routes
     else if (path === '/orders' && httpMethod === 'GET') {
       response = await getOrders(userId, userRole, queryStringParameters);
     }
@@ -486,6 +592,11 @@ const originalHandler = async (event) => {
       response = await getRetailers();
     }
     
+    // Inventory routes
+    else if (path === '/inventory' && httpMethod === 'GET') {
+      response = await getUserInventory(userId, userRole);
+    }
+    
     else {
       return formatResponse(404, { message: 'Route not found', path: path, method: httpMethod });
     }
@@ -507,7 +618,6 @@ const originalHandler = async (event) => {
 };
 
 exports.handler = async (event, context) => {
-  // Handle Cognito Triggers
   if (event.triggerSource && event.version) {
     console.log('🔐 Cognito Trigger Event:', JSON.stringify(event, null, 2));
     return handleCognitoTrigger(event, context);
@@ -516,105 +626,18 @@ exports.handler = async (event, context) => {
   return originalHandler(event);
 };
 
-// ===== PRODUCT MANAGEMENT FUNCTIONS (IMPROVED) =====
-
-async function createProductWithBlockchain(userId, userProfile, productData) {
-  const { name, category, description, quantity = 0, price = 0, batch } = productData;
-  
-  if (!name || !category || !batch) {
-    throw new Error('Product name, category, and batch are required');
-  }
-  
-  const productId = uuidv4();
-  const timestamp = new Date().toISOString();
-  
-  let txHash = null;
-  let blockchainStatus = 'pending';
-  
-  try {
-    if (blockchainInitialized) {
-      console.log('🔗 Attempting blockchain registration...');
-      // Try to register on blockchain
-      txHash = await registerProductOnBlockchain(
-        productId, 
-        name, 
-        batch, 
-        userProfile.name || userProfile.username
-      );
-      blockchainStatus = 'registered';
-      console.log('✅ Blockchain registration successful');
-    } else {
-      console.warn('⚠️  Blockchain not initialized, creating product without blockchain registration');
-      blockchainStatus = 'not_registered';
-    }
-  } catch (blockchainError) {
-    console.error('❌ Blockchain registration failed:', blockchainError);
-    // Continue without blockchain registration
-    blockchainStatus = 'failed';
-    console.log('📝 Continuing with database-only product creation...');
-  }
-  
-  // Save to DynamoDB regardless of blockchain status
-  const productItem = {
-    PK: `USER#${userId}`,
-    SK: `PRODUCT#${productId}`,
-    GSI1PK: 'TYPE#PRODUCT',
-    GSI1SK: `${category}#${name}`,
-    productId,
-    name,
-    category,
-    description,
-    batch,
-    quantity: parseInt(quantity) || 0,
-    price: parseInt(price) || 0,
-    manufacturer: userProfile.name || userProfile.username,
-    manufacturerId: userId,
-    blockchainTxHash: txHash,
-    blockchainStatus: blockchainStatus,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  
-  await dynamoDB.put({
-    TableName: TABLE_NAME,
-    Item: productItem
-  }).promise();
-  
-  const message = txHash 
-    ? 'Product created and registered on blockchain successfully'
-    : `Product created successfully (blockchain status: ${blockchainStatus})`;
-  
-  return {
-    message,
-    product: {
-      id: productId,
-      name,
-      category,
-      description,
-      batch,
-      quantity: parseInt(quantity) || 0,
-      price: parseInt(price) || 0,
-      manufacturer: userProfile.name || userProfile.username,
-      blockchainTxHash: txHash,
-      blockchainStatus: blockchainStatus,
-      createdAt: timestamp
-    }
-  };
-}
-
-// ===== REST OF THE FUNCTIONS (keeping existing implementations) =====
+// ===== ENHANCED FUNCTIONS =====
 
 async function updateUserRole(userId, requestBody) {
   try {
     const { role } = requestBody;
     
     if (!Object.values(USER_ROLES).includes(role)) {
-      throw new Error('Invalid role');
+      throw new Error('Invalid role. Valid roles: ' + Object.values(USER_ROLES).join(', '));
     }
     
     const timestamp = new Date().toISOString();
     
-    // Update in DynamoDB
     await dynamoDB.update({
       TableName: TABLE_NAME,
       Key: {
@@ -633,12 +656,13 @@ async function updateUserRole(userId, requestBody) {
     
     return {
       message: 'User role updated successfully',
-      role: role
+      role: role,
+      updatedAt: timestamp
     };
     
   } catch (error) {
     console.error('Error updating user role:', error);
-    throw new Error('Could not update user role');
+    throw new Error('Could not update user role: ' + error.message);
   }
 }
 
@@ -668,23 +692,378 @@ async function getProducts(userId, userRole, queryParams) {
   
   const result = await dynamoDB.query(params).promise();
   
-  const products = result.Items.map(item => ({
-    id: item.productId || item.SK.split('#')[1],
-    name: item.name,
-    category: item.category,
-    description: item.description,
-    batch: item.batch,
-    quantity: item.quantity || 0,
-    price: item.price || 0,
-    manufacturer: item.manufacturer || item.manufacturerName,
-    manufacturerId: item.manufacturerId,
-    blockchainTxHash: item.blockchainTxHash,
-    blockchainStatus: item.blockchainStatus,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt
+  // If retailer, also get inventory for each product
+  const products = await Promise.all(result.Items.map(async (item) => {
+    let inventoryQuantity = item.quantity || 0;
+    
+    // For retailers, get their inventory quantity instead of manufacturer's quantity
+    if (userRole === USER_ROLES.RETAILER && item.manufacturerId !== userId) {
+      inventoryQuantity = await getInventory(userId, item.productId);
+    }
+    
+    return {
+      id: item.productId || item.SK.split('#')[1],
+      name: item.name,
+      category: item.category,
+      description: item.description,
+      batch: item.batch,
+      quantity: inventoryQuantity,
+      originalQuantity: item.quantity || 0, // Original manufacturer quantity
+      price: item.price || 0,
+      manufacturer: item.manufacturer || item.manufacturerName,
+      manufacturerId: item.manufacturerId,
+      blockchainTxHash: item.blockchainTxHash,
+      blockchainStatus: item.blockchainStatus,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt
+    };
   }));
   
   return { products };
+}
+
+async function createProductWithBlockchain(userId, userProfile, productData) {
+  const { name, category, description, quantity = 0, price = 0, batch } = productData;
+  
+  if (!name || !category || !batch) {
+    throw new Error('Product name, category, and batch are required');
+  }
+  
+  const productId = uuidv4();
+  const timestamp = new Date().toISOString();
+  
+  let txHash = null;
+  let blockchainStatus = 'pending';
+  
+  try {
+    if (blockchainInitialized) {
+      console.log('🔗 Attempting blockchain registration...');
+      txHash = await registerProductOnBlockchain(
+        productId, 
+        name, 
+        batch, 
+        userProfile.name || userProfile.username
+      );
+      blockchainStatus = 'registered';
+      console.log('✅ Blockchain registration successful');
+    } else {
+      console.warn('⚠️  Blockchain not initialized, creating product without blockchain registration');
+      blockchainStatus = 'not_registered';
+    }
+  } catch (blockchainError) {
+    console.error('❌ Blockchain registration failed:', blockchainError);
+    blockchainStatus = 'failed';
+    console.log('📝 Continuing with database-only product creation...');
+  }
+  
+  // Save to DynamoDB
+  const productItem = {
+    PK: `USER#${userId}`,
+    SK: `PRODUCT#${productId}`,
+    GSI1PK: 'TYPE#PRODUCT',
+    GSI1SK: `${category}#${name}`,
+    productId,
+    name,
+    category,
+    description,
+    batch,
+    quantity: parseInt(quantity) || 0,
+    price: parseInt(price) || 0,
+    manufacturer: userProfile.name || userProfile.username,
+    manufacturerId: userId,
+    blockchainTxHash: txHash,
+    blockchainStatus: blockchainStatus,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  
+  await dynamoDB.put({
+    TableName: TABLE_NAME,
+    Item: productItem
+  }).promise();
+  
+  // Initialize manufacturer's inventory
+  await updateInventory(userId, productId, parseInt(quantity) || 0, 'add');
+  
+  const message = txHash 
+    ? 'Product created and registered on blockchain successfully'
+    : `Product created successfully (blockchain status: ${blockchainStatus})`;
+  
+  return {
+    message,
+    product: {
+      id: productId,
+      name,
+      category,
+      description,
+      batch,
+      quantity: parseInt(quantity) || 0,
+      price: parseInt(price) || 0,
+      manufacturer: userProfile.name || userProfile.username,
+      blockchainTxHash: txHash,
+      blockchainStatus: blockchainStatus,
+      createdAt: timestamp
+    }
+  };
+}
+
+async function createOrderWithBlockchain(userId, userProfile, orderData) {
+  const { type, productId, quantity, recipientId, recipientName, supplierName, customerInfo, notes } = orderData;
+  
+  if (!productId || !quantity || quantity <= 0) {
+    throw new Error('Product ID and valid quantity are required');
+  }
+  
+  const orderId = uuidv4();
+  const timestamp = new Date().toISOString();
+  
+  // Get product information
+  const productInfo = await getProductInfo(productId);
+  if (!productInfo) {
+    throw new Error('Product not found');
+  }
+  
+  // Check inventory for sales
+  if (type === 'sale') {
+    const currentInventory = await getInventory(userId, productId);
+    if (currentInventory < quantity) {
+      throw new Error(`Insufficient inventory. Available: ${currentInventory}, Requested: ${quantity}`);
+    }
+  }
+  
+  // Enhanced order item with proper recipient/supplier information
+  const orderItem = {
+    PK: `USER#${userId}`,
+    SK: `ORDER#${orderId}`,
+    GSI1PK: 'TYPE#ORDER',
+    GSI1SK: `${type}#${timestamp}`,
+    orderId,
+    type,
+    productId,
+    productName: productInfo.name,
+    quantity: parseInt(quantity),
+    status: 'pending',
+    createdBy: userId,
+    createdByName: userProfile.name || userProfile.username,
+    notes: notes || '',
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  
+  // Add specific fields based on order type
+  if (type === 'export') {
+    orderItem.recipientId = recipientId || '';
+    orderItem.recipientName = recipientName || recipientId || '';
+  } else if (type === 'import') {
+    orderItem.supplierId = recipientId || ''; // recipientId is actually supplier for import
+    orderItem.supplierName = supplierName || recipientId || '';
+  } else if (type === 'sale') {
+    orderItem.customerInfo = customerInfo || recipientId || '';
+  }
+  
+  await dynamoDB.put({
+    TableName: TABLE_NAME,
+    Item: orderItem
+  }).promise();
+  
+  return {
+    message: `Order created successfully`,
+    order: {
+      id: orderId,
+      type,
+      productId,
+      productName: productInfo.name,
+      quantity: parseInt(quantity),
+      status: 'pending',
+      ...(type === 'export' && { recipientName: recipientName || recipientId }),
+      ...(type === 'import' && { supplierName: supplierName || recipientId }),
+      ...(type === 'sale' && { customerInfo: customerInfo || recipientId }),
+      createdAt: timestamp
+    }
+  };
+}
+
+async function updateOrderStatusWithBlockchain(userId, userRole, orderId, updateData) {
+  const { status } = updateData;
+  
+  if (status !== 'completed') {
+    // Simple status update for non-completed orders
+    await dynamoDB.update({
+      TableName: TABLE_NAME,
+      Key: {
+        PK: `USER#${userId}`,
+        SK: `ORDER#${orderId}`
+      },
+      UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
+      ExpressionAttributeNames: {
+        '#status': 'status'
+      },
+      ExpressionAttributeValues: {
+        ':status': status,
+        ':updatedAt': new Date().toISOString()
+      },
+      ConditionExpression: 'attribute_exists(PK)'
+    }).promise();
+    
+    return { message: 'Order status updated successfully' };
+  }
+  
+  // For completed orders, we need to handle inventory and trace records
+  const orderResult = await dynamoDB.get({
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `USER#${userId}`,
+      SK: `ORDER#${orderId}`
+    }
+  }).promise();
+  
+  if (!orderResult.Item) {
+    throw new Error('Order not found');
+  }
+  
+  const order = orderResult.Item;
+  const productInfo = await getProductInfo(order.productId);
+  
+  if (!productInfo) {
+    throw new Error('Product information not found');
+  }
+  
+  let txHash = null;
+  let traceStage = '';
+  let traceCompany = '';
+  let traceLocation = 'Vietnam'; // Default location
+  
+  try {
+    // Handle different order types when completed
+    if (order.type === 'export') {
+      // Manufacturer exporting to retailer
+      traceStage = 'Exported';
+      traceCompany = order.createdByName;
+      
+      // Reduce manufacturer inventory
+      await updateInventory(userId, order.productId, order.quantity, 'subtract');
+      
+      // Add trace record to blockchain
+      if (blockchainInitialized) {
+        txHash = await addTraceRecordToBlockchain(
+          order.productId,
+          traceStage,
+          traceCompany,
+          traceLocation
+        );
+      }
+      
+      // Save trace record to database
+      await saveTraceRecord(order.productId, traceStage, traceCompany, traceLocation, txHash, order);
+      
+    } else if (order.type === 'import') {
+      // Retailer importing from manufacturer
+      traceStage = 'Imported';
+      traceCompany = order.createdByName;
+      
+      // Increase retailer inventory
+      await updateInventory(userId, order.productId, order.quantity, 'add');
+      
+      // Add trace record to blockchain
+      if (blockchainInitialized) {
+        txHash = await addTraceRecordToBlockchain(
+          order.productId,
+          traceStage,
+          traceCompany,
+          traceLocation
+        );
+      }
+      
+      // Save trace record to database
+      await saveTraceRecord(order.productId, traceStage, traceCompany, traceLocation, txHash, order);
+      
+    } else if (order.type === 'sale') {
+      // Retailer selling to customer (no trace record needed, just inventory update)
+      await updateInventory(userId, order.productId, order.quantity, 'subtract');
+    }
+    
+  } catch (error) {
+    console.error('Error processing completed order:', error);
+    // Continue with status update even if blockchain/trace fails
+  }
+  
+  // Update order status
+  await dynamoDB.update({
+    TableName: TABLE_NAME,
+    Key: {
+      PK: `USER#${userId}`,
+      SK: `ORDER#${orderId}`
+    },
+    UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt, completedAt = :completedAt',
+    ExpressionAttributeNames: {
+      '#status': 'status'
+    },
+    ExpressionAttributeValues: {
+      ':status': status,
+      ':updatedAt': new Date().toISOString(),
+      ':completedAt': new Date().toISOString()
+    }
+  }).promise();
+  
+  return { 
+    message: 'Order completed successfully',
+    traceRecordAdded: !!txHash,
+    blockchainTxHash: txHash
+  };
+}
+
+async function saveTraceRecord(productId, stage, company, location, txHash, orderInfo) {
+  const timestamp = new Date().toISOString();
+  const traceId = uuidv4();
+  
+  const traceRecord = {
+    PK: `PRODUCT#${productId}`,
+    SK: `TRACE#${timestamp}#${traceId}`,
+    GSI1PK: 'TYPE#TRACE',
+    GSI1SK: `${productId}#${timestamp}`,
+    traceId,
+    productId,
+    stage,
+    companyName: company,
+    location,
+    blockchainTxHash: txHash,
+    details: {
+      quantity: orderInfo?.quantity,
+      orderId: orderInfo?.orderId,
+      location: location,
+      notes: `${stage} - Quantity: ${orderInfo?.quantity || 'N/A'}`
+    },
+    timestamp,
+    createdAt: timestamp
+  };
+  
+  await dynamoDB.put({
+    TableName: TABLE_NAME,
+    Item: traceRecord
+  }).promise();
+  
+  console.log('✅ Trace record saved to database');
+}
+
+async function getProductInfo(productId) {
+  try {
+    const params = {
+      TableName: TABLE_NAME,
+      IndexName: 'GSI1',
+      KeyConditionExpression: 'GSI1PK = :pk',
+      FilterExpression: 'productId = :productId',
+      ExpressionAttributeValues: {
+        ':pk': 'TYPE#PRODUCT',
+        ':productId': productId
+      }
+    };
+    
+    const result = await dynamoDB.query(params).promise();
+    return result.Items.length > 0 ? result.Items[0] : null;
+  } catch (error) {
+    console.error('Error getting product info:', error);
+    return null;
+  }
 }
 
 async function getProductWithBlockchain(userId, userRole, productId) {
@@ -708,6 +1087,12 @@ async function getProductWithBlockchain(userId, userRole, productId) {
   if (result.Items.length > 0) {
     const item = result.Items[0];
     
+    // Get current inventory for the user
+    let currentInventory = item.quantity || 0;
+    if (userRole === USER_ROLES.RETAILER && item.manufacturerId !== userId) {
+      currentInventory = await getInventory(userId, productId);
+    }
+    
     // Get blockchain data for verification
     const blockchainData = await getProductFromBlockchain(productId);
     
@@ -717,7 +1102,8 @@ async function getProductWithBlockchain(userId, userRole, productId) {
       category: item.category,
       description: item.description,
       batch: item.batch,
-      quantity: item.quantity,
+      quantity: currentInventory,
+      originalQuantity: item.quantity,
       price: item.price,
       manufacturer: item.manufacturer,
       manufacturerId: item.manufacturerId,
@@ -798,60 +1184,39 @@ async function getOrders(userId, userRole, queryParams) {
     productName: item.productName,
     quantity: item.quantity,
     status: item.status,
+    recipientName: item.recipientName || item.recipientId,
+    supplierName: item.supplierName || item.supplierId,
+    customerInfo: item.customerInfo,
+    notes: item.notes,
     createdAt: item.createdAt,
-    updatedAt: item.updatedAt
+    updatedAt: item.updatedAt,
+    completedAt: item.completedAt
   }));
   
   return { orders };
 }
 
-async function createOrderWithBlockchain(userId, userProfile, orderData) {
-  // Simplified order creation
-  const orderId = uuidv4();
-  const timestamp = new Date().toISOString();
+async function getUserInventory(userId, userRole) {
+  const inventory = await getInventory(userId);
   
-  const orderItem = {
-    PK: `USER#${userId}`,
-    SK: `ORDER#${orderId}`,
-    orderId,
-    ...orderData,
-    status: 'pending',
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  
-  await dynamoDB.put({
-    TableName: TABLE_NAME,
-    Item: orderItem
-  }).promise();
+  // Get product details for each inventory item
+  const inventoryWithDetails = await Promise.all(
+    inventory.map(async (item) => {
+      const productInfo = await getProductInfo(item.productId);
+      return {
+        ...item,
+        productName: productInfo?.name || 'Unknown Product',
+        category: productInfo?.category || 'Unknown',
+        manufacturer: productInfo?.manufacturer || 'Unknown'
+      };
+    })
+  );
   
   return {
-    message: 'Order created successfully',
-    order: orderItem
+    inventory: inventoryWithDetails,
+    totalItems: inventoryWithDetails.length,
+    totalQuantity: inventoryWithDetails.reduce((sum, item) => sum + item.quantity, 0)
   };
-}
-
-async function updateOrderStatusWithBlockchain(userId, userRole, orderId, updateData) {
-  const { status } = updateData;
-  
-  await dynamoDB.update({
-    TableName: TABLE_NAME,
-    Key: {
-      PK: `USER#${userId}`,
-      SK: `ORDER#${orderId}`
-    },
-    UpdateExpression: 'SET #status = :status, updatedAt = :updatedAt',
-    ExpressionAttributeNames: {
-      '#status': 'status'
-    },
-    ExpressionAttributeValues: {
-      ':status': status,
-      ':updatedAt': new Date().toISOString()
-    },
-    ConditionExpression: 'attribute_exists(PK)'
-  }).promise();
-  
-  return { message: 'Order status updated successfully' };
 }
 
 async function verifyProductOnBlockchain(productCode) {
@@ -860,7 +1225,6 @@ async function verifyProductOnBlockchain(productCode) {
   }
   
   try {
-    // Get product from blockchain
     const blockchainData = await getProductFromBlockchain(productCode);
     
     if (!blockchainData) {
@@ -870,7 +1234,6 @@ async function verifyProductOnBlockchain(productCode) {
       };
     }
     
-    // Get additional data from DynamoDB
     try {
       const dbProduct = await getProductWithBlockchain(null, null, productCode);
       return {
@@ -881,7 +1244,6 @@ async function verifyProductOnBlockchain(productCode) {
         verificationTime: new Date().toISOString()
       };
     } catch (dbError) {
-      // Product exists on blockchain but not in database
       return {
         verified: true,
         productId: productCode,
@@ -906,7 +1268,6 @@ async function traceProductWithBlockchain(productCode) {
   }
   
   try {
-    // Get blockchain verification
     const verification = await verifyProductOnBlockchain(productCode);
     
     if (!verification.verified) {
@@ -931,7 +1292,7 @@ async function traceProductWithBlockchain(productCode) {
         stage: item.stage,
         company: item.companyName,
         date: item.timestamp?.split('T')[0] || item.createdAt?.split('T')[0],
-        location: item.details?.location || 'N/A',
+        location: item.location || 'N/A',
         details: item.details?.notes || `${item.stage} - Quantity: ${item.details?.quantity || 'N/A'}`,
         blockchainTxHash: item.blockchainTxHash || 'N/A'
       }))
@@ -971,7 +1332,6 @@ async function getManufacturers() {
     const result = await dynamoDB.query(params).promise();
     
     const manufacturers = await Promise.all(result.Items.map(async (item) => {
-      // Count products for each manufacturer
       try {
         const productCount = await dynamoDB.query({
           TableName: TABLE_NAME,
@@ -988,7 +1348,7 @@ async function getManufacturers() {
           name: item.name || item.username,
           location: item.location || 'Việt Nam',
           products: productCount.Count,
-          rating: 4.5, // Mock rating for now
+          rating: 4.5,
           email: item.email
         };
       } catch (countError) {
@@ -1033,8 +1393,8 @@ async function getRetailers() {
       id: item.userId,
       name: item.name || item.username,
       location: item.location || 'Việt Nam',
-      manufacturers: 5, // Mock count for now
-      rating: 4.3, // Mock rating for now
+      manufacturers: 5,
+      rating: 4.3,
       email: item.email
     }));
     
@@ -1045,13 +1405,11 @@ async function getRetailers() {
   }
 }
 
-// ===== UTILITY FUNCTIONS =====
-
 async function healthCheck() {
   return {
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: '2.0.0',
+    version: '2.1.0',
     blockchain: {
       connected: blockchainInitialized,
       network: 'Sepolia',
@@ -1095,7 +1453,7 @@ async function handleCognitoTrigger(event, context) {
           username: username,
           email: email,
           name: userAttributes.name || username,
-          role: USER_ROLES.CONSUMER, // Default role
+          role: USER_ROLES.CONSUMER,
           createdAt: timestamp,
           updatedAt: timestamp
         }
