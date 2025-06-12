@@ -149,7 +149,14 @@ async function addTraceRecordToBlockchain(productId, stage, company, location) {
       String(location).trim()
     ];
     
-    const gasPrice = await web3.eth.getGasPrice();
+    // Get current gas price and increase it by 20% to avoid underpriced errors
+    const baseGasPrice = await web3.eth.getGasPrice();
+    const gasPrice = Math.floor(Number(baseGasPrice) * 1.2).toString();
+    
+    console.log('Gas price calculation:', {
+      baseGasPrice: web3.utils.fromWei(baseGasPrice, 'gwei') + ' gwei',
+      adjustedGasPrice: web3.utils.fromWei(gasPrice, 'gwei') + ' gwei'
+    });
     
     let gasEstimate;
     try {
@@ -158,14 +165,24 @@ async function addTraceRecordToBlockchain(productId, stage, company, location) {
       });
     } catch (estimateError) {
       console.warn('⚠️  Gas estimation failed for trace record:', estimateError.message);
-      gasEstimate = 250000;
+      gasEstimate = 250000; // Default gas limit if estimation fails
     }
+    
+    // Add 20% buffer to gas estimate
+    const gasLimit = Math.floor(Number(gasEstimate) * 1.2);
     
     const txOptions = {
       from: account.address,
-      gas: Math.floor(Number(gasEstimate) * 1.2),
-      gasPrice: String(gasPrice)
+      gas: gasLimit,
+      gasPrice: gasPrice,
+      nonce: await web3.eth.getTransactionCount(account.address, 'latest')
     };
+    
+    console.log('Transaction options:', {
+      gasLimit: gasLimit,
+      gasPrice: web3.utils.fromWei(gasPrice, 'gwei') + ' gwei',
+      nonce: txOptions.nonce
+    });
     
     const tx = await contract.methods.addTraceRecord(...params).send(txOptions);
     
@@ -174,7 +191,19 @@ async function addTraceRecordToBlockchain(productId, stage, company, location) {
     
   } catch (error) {
     console.error('❌ Blockchain trace record error:', error);
-    throw new Error('Failed to add trace record to blockchain: ' + error.message);
+    
+    // Handle specific error cases
+    if (error.message.includes('replacement transaction underpriced')) {
+      throw new Error('Transaction gas price too low. Please try again with higher gas price.');
+    } else if (error.message.includes('insufficient funds')) {
+      throw new Error('Insufficient funds for blockchain transaction');
+    } else if (error.message.includes('nonce')) {
+      throw new Error('Transaction nonce error - please try again');
+    } else if (error.message.includes('gas')) {
+      throw new Error('Gas estimation failed - network may be congested');
+    } else {
+      throw new Error('Failed to add trace record to blockchain: ' + error.message);
+    }
   }
 }
 
