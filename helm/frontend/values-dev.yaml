@@ -4,7 +4,7 @@ replicaCount: 2
 image:
   repository: baotg0502/devsecops
   pullPolicy: Always
-  tag: "latest"
+  tag: "dev-b2b5f7e"
 
 environment: dev
 
