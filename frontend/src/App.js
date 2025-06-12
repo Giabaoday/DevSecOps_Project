@@ -41,10 +41,23 @@ export default function ProductTraceabilityApp() {
   
   // States cho forms
   const [productForm, setProductForm] = useState({
-    name: '', category: '', description: '', quantity: 0, price: 0, batch: ''
+    name: '',
+    category: '',
+    description: '',
+    quantity: 0,
+    price: 0,
+    batch: '',
+    blockchainStatus: 'pending'
   });
   const [orderForm, setOrderForm] = useState({
-    productId: '', quantity: 0, recipientId: '', notes: '', type: 'export'
+    type: 'export',
+    productId: '',
+    quantity: 0,
+    recipientId: '',
+    recipientName: '',
+    supplierName: '',
+    customerInfo: '',
+    notes: ''
   });
   const [searchCode, setSearchCode] = useState('');
   const [editingItem, setEditingItem] = useState(null);
@@ -292,11 +305,26 @@ export default function ProductTraceabilityApp() {
       setApiLoading(true);
       const result = await apiCall('/products', {
         method: 'POST',
-        body: JSON.stringify(productForm)
+        body: JSON.stringify({
+          name: productForm.name,
+          category: productForm.category,
+          description: productForm.description,
+          quantity: parseInt(productForm.quantity) || 0,
+          price: parseInt(productForm.price) || 0,
+          batch: productForm.batch
+        })
       });
       
       showNotification(result.message || 'Thêm sản phẩm thành công!');
-      setProductForm({ name: '', category: '', description: '', quantity: 0, price: 0, batch: '' });
+      setProductForm({ 
+        name: '', 
+        category: '', 
+        description: '', 
+        quantity: 0, 
+        price: 0, 
+        batch: '',
+        blockchainStatus: 'pending'
+      });
       
       // Reload products
       await loadProducts();
@@ -363,14 +391,40 @@ export default function ProductTraceabilityApp() {
 
     try {
       setApiLoading(true);
-      const orderData = { ...orderForm, type };
+      const orderData = {
+        type,
+        productId: orderForm.productId,
+        quantity: parseInt(orderForm.quantity),
+        notes: orderForm.notes
+      };
+
+      // Add type-specific fields
+      if (type === 'export') {
+        orderData.recipientId = orderForm.recipientId;
+        orderData.recipientName = orderForm.recipientName;
+      } else if (type === 'import') {
+        orderData.recipientId = orderForm.recipientId; // This is actually supplierId
+        orderData.supplierName = orderForm.supplierName;
+      } else if (type === 'sale') {
+        orderData.customerInfo = orderForm.customerInfo;
+      }
+
       const result = await apiCall('/orders', {
         method: 'POST',
         body: JSON.stringify(orderData)
       });
       
       showNotification(result.message || `Tạo đơn hàng ${type === 'export' ? 'xuất' : type === 'import' ? 'nhập' : 'bán'} thành công!`);
-      setOrderForm({ productId: '', quantity: 0, recipientId: '', notes: '', type: 'export' });
+      setOrderForm({
+        type: 'export',
+        productId: '',
+        quantity: 0,
+        recipientId: '',
+        recipientName: '',
+        supplierName: '',
+        customerInfo: '',
+        notes: ''
+      });
       
       // Reload orders
       await loadOrders();
@@ -417,7 +471,7 @@ export default function ProductTraceabilityApp() {
 
     try {
       setApiLoading(true);
-      const result = await apiCall(`/trace?code=${encodeURIComponent(searchCode)}`);
+      const result = await apiCall(`/public/trace?code=${encodeURIComponent(searchCode)}`);
       setTraceData(result);
       showNotification('Truy xuất thông tin sản phẩm thành công!');
     } catch (error) {
@@ -436,7 +490,7 @@ export default function ProductTraceabilityApp() {
 
     try {
       setApiLoading(true);
-      const result = await apiCall(`/verify?code=${encodeURIComponent(searchCode)}`);
+      const result = await apiCall(`/public/verify?code=${encodeURIComponent(searchCode)}`);
       
       if (result.verified) {
         showNotification('✅ Sản phẩm được xác thực trên blockchain!');
@@ -675,548 +729,537 @@ export default function ProductTraceabilityApp() {
 
   const renderTrace = () => (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Tra cứu nguồn gốc sản phẩm</h3>
-        <div className="flex space-x-4 mb-6">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Truy xuất thông tin sản phẩm</h2>
+        <div className="flex gap-4">
           <input
             type="text"
-            placeholder="Nhập mã sản phẩm để tra cứu"
             value={searchCode}
             onChange={(e) => setSearchCode(e.target.value)}
-            className="flex-1 border rounded p-3"
-            onKeyPress={(e) => e.key === 'Enter' && traceProduct()}
+            className="flex-1 px-3 py-2 border rounded-md"
+            placeholder="Nhập mã sản phẩm"
           />
           <button
             onClick={traceProduct}
             disabled={apiLoading}
-            className="bg-blue-500 text-white px-6 py-3 rounded flex items-center hover:bg-blue-600 disabled:opacity-50"
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
-            {apiLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <Search size={16} className="mr-2" />}
-            Tra cứu
+            {apiLoading ? 'Đang xử lý...' : 'Truy xuất'}
           </button>
         </div>
-        
-        {traceData && (
-          <div className="border-t pt-6">
-            <div className="mb-6 bg-green-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-green-600 mb-2">
-                {traceData.productName} (Mã: {traceData.productId})
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div>
-                  <span className="font-medium">Nhà sản xuất:</span> {traceData.manufacturer}
-                </div>
-                <div>
-                  <span className="font-medium">Batch:</span> {traceData.batch}
-                </div>
-                <div>
-                  <span className="font-medium">Trạng thái:</span> 
-                  <span className="ml-1 px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                    {traceData.currentStatus}
-                  </span>
-                </div>
+      </div>
+
+      {traceData && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Thông tin sản phẩm</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-500">Mã sản phẩm</p>
+                <p className="font-medium">{traceData.productId}</p>
               </div>
-              {traceData.blockchainVerified && (
-                <div className="mt-2 flex items-center text-green-600">
-                  <Check size={16} className="mr-1" />
-                  <span className="text-sm">Đã xác thực trên Blockchain</span>
-                </div>
-              )}
+              <div>
+                <p className="text-sm text-gray-500">Tên sản phẩm</p>
+                <p className="font-medium">{traceData.productName}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Nhà sản xuất</p>
+                <p className="font-medium">{traceData.manufacturer}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Mã lô</p>
+                <p className="font-medium">{traceData.batch}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Trạng thái hiện tại</p>
+                <p className="font-medium">{traceData.currentStatus}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Xác thực Blockchain</p>
+                <p className="font-medium">
+                  {traceData.blockchainVerified ? (
+                    <span className="inline-flex items-center text-green-600">
+                      <Check className="w-4 h-4 mr-1" />
+                      Đã xác thực
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-red-600">
+                      <AlertCircle className="w-4 h-4 mr-1" />
+                      Chưa xác thực
+                    </span>
+                  )}
+                </p>
+              </div>
             </div>
-            
-            {traceData.trace && traceData.trace.length > 0 && (
+
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-4">Lịch sử truy xuất</h3>
               <div className="space-y-4">
-                <h5 className="font-semibold">Lịch trình vận chuyển:</h5>
-                {traceData.trace.map((stage, index) => (
-                  <div key={index} className="flex items-start space-x-4 border-l-2 border-blue-200 pl-4 pb-4">
-                    <div className="bg-blue-500 rounded-full p-2 text-white text-sm">
-                      {index + 1}
+                {traceData.trace.map((record, index) => (
+                  <div key={index} className="flex items-start space-x-4 p-4 bg-gray-50 rounded-lg">
+                    <div className="flex-shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
+                        <span className="text-blue-600 font-medium">{index + 1}</span>
+                      </div>
                     </div>
                     <div className="flex-1">
-                      <div className="flex justify-between items-start mb-2">
-                        <h6 className="font-medium">{stage.stage}</h6>
-                        <span className="text-sm text-gray-500">{stage.date}</span>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-medium">{record.stage}</h4>
+                        <span className="text-sm text-gray-500">{record.date}</span>
                       </div>
-                      <p className="text-sm font-medium text-blue-600">{stage.company}</p>
-                      <p className="text-sm text-gray-600 flex items-center">
-                        <MapPin size={12} className="mr-1" />
-                        {stage.location}
-                      </p>
-                      <p className="text-sm text-gray-700 mt-1">{stage.details}</p>
-                      {stage.blockchainTxHash && stage.blockchainTxHash !== 'N/A' && (
-                        <p className="text-xs text-blue-500 mt-1">
-                          TX: {stage.blockchainTxHash.substring(0, 20)}...
-                        </p>
+                      <p className="text-sm text-gray-600 mt-1">{record.company}</p>
+                      <p className="text-sm text-gray-600">{record.location}</p>
+                      <p className="text-sm text-gray-600 mt-2">{record.details}</p>
+                      {record.blockchainTxHash && record.blockchainTxHash !== 'N/A' && (
+                        <div className="mt-2">
+                          <a
+                            href={`https://sepolia.etherscan.io/tx/${record.blockchainTxHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center text-sm text-blue-600 hover:text-blue-800"
+                          >
+                            <ExternalLink className="w-4 h-4 mr-1" />
+                            Xem giao dịch trên Etherscan
+                          </a>
+                        </div>
                       )}
                     </div>
-                    {index < traceData.trace.length - 1 && (
-                      <ArrowRight className="text-gray-400 mt-2" size={16} />
-                    )}
                   </div>
                 ))}
               </div>
-            )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 
   const renderVerify = () => (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h3 className="text-lg font-semibold mb-4">Xác thực sản phẩm trên Blockchain</h3>
-        <div className="flex space-x-4 mb-6">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Xác thực sản phẩm trên Blockchain</h2>
+        <div className="flex gap-4">
           <input
             type="text"
-            placeholder="Nhập mã sản phẩm để xác thực"
             value={searchCode}
             onChange={(e) => setSearchCode(e.target.value)}
-            className="flex-1 border rounded p-3"
-            onKeyPress={(e) => e.key === 'Enter' && verifyProduct()}
+            className="flex-1 px-3 py-2 border rounded-md"
+            placeholder="Nhập mã sản phẩm"
           />
           <button
             onClick={verifyProduct}
             disabled={apiLoading}
-            className="bg-green-500 text-white px-6 py-3 rounded flex items-center hover:bg-green-600 disabled:opacity-50"
+            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
           >
-            {apiLoading ? <RefreshCw size={16} className="mr-2 animate-spin" /> : <QrCode size={16} className="mr-2" />}
-            Xác thực
+            {apiLoading ? 'Đang xử lý...' : 'Xác thực'}
           </button>
         </div>
-        
-        {traceData && (
-          <div className="border-t pt-6">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="text-lg font-semibold text-blue-600 mb-4">
-                Kết quả xác thực
-              </h4>
-              
-              {traceData.verified ? (
-                <div className="space-y-4">
-                  <div className="flex items-center text-green-600">
-                    <Check size={20} className="mr-2" />
-                    <span className="font-medium">Sản phẩm được xác thực hợp lệ</span>
-                  </div>
-                  
-                  {traceData.blockchainData && (
-                    <div className="bg-white p-4 rounded border">
-                      <h5 className="font-semibold mb-2">Thông tin từ Blockchain:</h5>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="font-medium">Tên sản phẩm:</span> {traceData.blockchainData.name}
-                        </div>
-                        <div>
-                          <span className="font-medium">Batch:</span> {traceData.blockchainData.batch}
-                        </div>
-                        <div>
-                          <span className="font-medium">Nhà sản xuất:</span> {traceData.blockchainData.manufacturer}
-                        </div>
-                        <div>
-                          <span className="font-medium">Trạng thái:</span> {traceData.blockchainData.status}
-                        </div>
-                        {traceData.blockchainData.timestamp && (
-                          <div className="md:col-span-2">
-                            <span className="font-medium">Thời gian đăng ký:</span> {
-                              new Date(traceData.blockchainData.timestamp * 1000).toLocaleString('vi-VN')
-                            }
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  {traceData.databaseData && (
-                    <div className="bg-white p-4 rounded border">
-                      <h5 className="font-semibold mb-2">Thông tin chi tiết:</h5>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="font-medium">Danh mục:</span> {traceData.databaseData.category}
-                        </div>
-                        <div>
-                          <span className="font-medium">Số lượng:</span> {traceData.databaseData.quantity}
-                        </div>
-                        <div>
-                          <span className="font-medium">Giá:</span> {traceData.databaseData.price?.toLocaleString()} VND
-                        </div>
-                        <div>
-                          <span className="font-medium">Ngày tạo:</span> {
-                            new Date(traceData.databaseData.createdAt).toLocaleDateString('vi-VN')
-                          }
-                        </div>
-                        {traceData.databaseData.description && (
-                          <div className="md:col-span-2">
-                            <span className="font-medium">Mô tả:</span> {traceData.databaseData.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="text-xs text-gray-500">
-                    Thời gian xác thực: {new Date(traceData.verificationTime).toLocaleString('vi-VN')}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center text-red-600">
-                  <X size={20} className="mr-2" />
-                  <span className="font-medium">{traceData.message}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
       </div>
+
+      {traceData && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Kết quả xác thực</h2>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-500">Trạng thái xác thực</p>
+                <p className="font-medium">
+                  {traceData.verified ? (
+                    <span className="inline-flex items-center text-green-600">
+                      <Check className="w-4 h-4 mr-1" />
+                      Đã xác thực
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center text-red-600">
+                      <AlertCircle className="w-4 h-4 mr-1" />
+                      Chưa xác thực
+                    </span>
+                  )}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Thời gian xác thực</p>
+                <p className="font-medium">{new Date(traceData.verificationTime).toLocaleString()}</p>
+              </div>
+            </div>
+
+            {traceData.verified && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-500">Mã sản phẩm</p>
+                    <p className="font-medium">{traceData.productId}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Tên sản phẩm</p>
+                    <p className="font-medium">{traceData.blockchainData.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Nhà sản xuất</p>
+                    <p className="font-medium">{traceData.blockchainData.manufacturer}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Mã lô</p>
+                    <p className="font-medium">{traceData.blockchainData.batch}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Trạng thái</p>
+                    <p className="font-medium">{traceData.blockchainData.status}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">Thời gian đăng ký</p>
+                    <p className="font-medium">
+                      {new Date(traceData.blockchainData.timestamp * 1000).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                {traceData.databaseData && (
+                  <div className="mt-6">
+                    <h3 className="text-lg font-semibold mb-4">Thông tin bổ sung từ cơ sở dữ liệu</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-500">Danh mục</p>
+                        <p className="font-medium">{traceData.databaseData.category}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Mô tả</p>
+                        <p className="font-medium">{traceData.databaseData.description}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Giá</p>
+                        <p className="font-medium">{traceData.databaseData.price}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Số lượng</p>
+                        <p className="font-medium">{traceData.databaseData.quantity}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
   const renderProducts = () => (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">
-            {user?.role === USER_ROLES.MANUFACTURER ? 'Sản phẩm của tôi' : 'Danh sách sản phẩm'}
-          </h3>
-          {user?.role === USER_ROLES.MANUFACTURER && (
-            <button
-              onClick={() => setActiveTab('add-product')}
-              className="bg-blue-500 text-white px-4 py-2 rounded flex items-center hover:bg-blue-600"
-            >
-              <PlusCircle size={16} className="mr-2" />
-              Thêm sản phẩm
-            </button>
-          )}
-        </div>
-        
-        {apiLoading ? (
-          <div className="text-center py-8">
-            <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
-            <p>Đang tải...</p>
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">Thêm sản phẩm mới</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tên sản phẩm</label>
+            <input
+              type="text"
+              value={productForm.name}
+              onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập tên sản phẩm"
+            />
           </div>
-        ) : (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
+            <input
+              type="text"
+              value={productForm.category}
+              onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập danh mục"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
+            <input
+              type="text"
+              value={productForm.description}
+              onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập mô tả"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Số lượng</label>
+            <input
+              type="number"
+              value={productForm.quantity}
+              onChange={(e) => setProductForm({ ...productForm, quantity: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập số lượng"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Giá</label>
+            <input
+              type="number"
+              value={productForm.price}
+              onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập giá"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Mã lô</label>
+            <input
+              type="text"
+              value={productForm.batch}
+              onChange={(e) => setProductForm({ ...productForm, batch: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập mã lô"
+            />
+          </div>
+        </div>
+        <button
+          onClick={addProduct}
+          disabled={apiLoading}
+          className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {apiLoading ? 'Đang xử lý...' : 'Thêm sản phẩm'}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-4">Danh sách sản phẩm</h2>
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="p-3 text-left">Mã SP</th>
-                  <th className="p-3 text-left">Tên sản phẩm</th>
-                  <th className="p-3 text-left">Danh mục</th>
-                  <th className="p-3 text-left">Batch</th>
-                  <th className="p-3 text-left">Số lượng</th>
-                  <th className="p-3 text-left">Giá</th>
-                  <th className="p-3 text-left">Nhà sản xuất</th>
-                  {user?.role === USER_ROLES.MANUFACTURER && (
-                    <th className="p-3 text-left">Thao tác</th>
-                  )}
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Danh mục</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Giá</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mã lô</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Blockchain</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
                 </tr>
               </thead>
-              <tbody>
-                {products.map(product => (
-                  <tr key={product.id} className="border-b">
-                    <td className="p-3">{product.id}</td>
-                    <td className="p-3">{product.name}</td>
-                    <td className="p-3">{product.category}</td>
-                    <td className="p-3">{product.batch}</td>
-                    <td className="p-3">{product.quantity}</td>
-                    <td className="p-3">{product.price?.toLocaleString()} VND</td>
-                    <td className="p-3">{product.manufacturer}</td>
-                    {user?.role === USER_ROLES.MANUFACTURER && (
-                      <td className="p-3">
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => setEditingItem(product)}
-                            className="text-blue-500 hover:text-blue-700"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={() => deleteProduct(product.id)}
-                            className="text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    )}
+              <tbody className="bg-white divide-y divide-gray-200">
+                {products.map((product) => (
+                  <tr key={product.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.name}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.category}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.quantity}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.price}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.batch}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {product.blockchainStatus === 'registered' ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          <Check className="w-4 h-4 mr-1" />
+                          Đã đăng ký
+                        </span>
+                      ) : product.blockchainStatus === 'pending' ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                          <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                          Đang xử lý
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          <AlertCircle className="w-4 h-4 mr-1" />
+                          Lỗi
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <button
+                        onClick={() => setEditingItem(product)}
+                        className="text-blue-600 hover:text-blue-900 mr-4"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => deleteProduct(product.id)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        )}
+        </div>
       </div>
-
-      {/* Add Product Form */}
-      {activeTab === 'add-product' && (
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">Thêm sản phẩm mới</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <input
-              type="text"
-              placeholder="Tên sản phẩm *"
-              value={productForm.name}
-              onChange={(e) => setProductForm({...productForm, name: e.target.value})}
-              className="border rounded p-2"
-            />
-            <input
-              type="text"
-              placeholder="Danh mục *"
-              value={productForm.category}
-              onChange={(e) => setProductForm({...productForm, category: e.target.value})}
-              className="border rounded p-2"
-            />
-            <input
-              type="text"
-              placeholder="Batch/Lô sản xuất *"
-              value={productForm.batch}
-              onChange={(e) => setProductForm({...productForm, batch: e.target.value})}
-              className="border rounded p-2"
-            />
-            <input
-              type="number"
-              placeholder="Số lượng"
-              value={productForm.quantity}
-              onChange={(e) => setProductForm({...productForm, quantity: parseInt(e.target.value) || 0})}
-              className="border rounded p-2"
-              min={0}
-            />
-            <input
-              type="number"
-              placeholder="Giá (VND)"
-              value={productForm.price}
-              onChange={(e) => setProductForm({...productForm, price: parseInt(e.target.value) || 0})}
-              className="border rounded p-2"
-              min={0}
-            />
-            <textarea
-              placeholder="Mô tả sản phẩm"
-              value={productForm.description}
-              onChange={(e) => setProductForm({...productForm, description: e.target.value})}
-              className="border rounded p-2 md:col-span-2"
-              rows="3"
-            />
-          </div>
-          <div className="flex space-x-4 mt-4">
-            <button
-              onClick={addProduct}
-              disabled={apiLoading}
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50"
-            >
-              {apiLoading ? 'Đang thêm...' : 'Thêm sản phẩm'}
-            </button>
-            <button
-              onClick={() => setActiveTab('products')}
-              className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-            >
-              Hủy
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Product Modal */}
-      {editingItem && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-md">
-            <h3 className="text-lg font-semibold mb-4">Chỉnh sửa sản phẩm</h3>
-            <div className="space-y-4">
-              <input
-                type="text"
-                placeholder="Tên sản phẩm"
-                value={editingItem.name}
-                onChange={(e) => setEditingItem({...editingItem, name: e.target.value})}
-                className="w-full border rounded p-2"
-              />
-              <input
-                type="text"
-                placeholder="Danh mục"
-                value={editingItem.category}
-                onChange={(e) => setEditingItem({...editingItem, category: e.target.value})}
-                className="w-full border rounded p-2"
-              />
-              <input
-                type="text"
-                placeholder="Batch"
-                value={editingItem.batch}
-                onChange={(e) => setEditingItem({...editingItem, batch: e.target.value})}
-                className="w-full border rounded p-2"
-              />
-              <input
-                type="number"
-                placeholder="Số lượng"
-                value={editingItem.quantity}
-                onChange={(e) => setEditingItem({...editingItem, quantity: parseInt(e.target.value) || 0})}
-                className="w-full border rounded p-2"
-                min={0}
-              />
-              <input
-                type="number"
-                placeholder="Giá (VND)"
-                value={editingItem.price}
-                onChange={(e) => setEditingItem({...editingItem, price: parseInt(e.target.value) || 0})}
-                className="w-full border rounded p-2"
-                min={0}
-              />
-            </div>
-            <div className="flex space-x-4 mt-6">
-              <button
-                onClick={updateProduct}
-                disabled={apiLoading}
-                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50"
-              >
-                {apiLoading ? 'Đang cập nhật...' : 'Cập nhật'}
-              </button>
-              <button
-                onClick={() => setEditingItem(null)}
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-              >
-                Hủy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 
   const renderOrders = (type) => (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-lg shadow">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold">
-            Đơn hàng {type === 'export' ? 'xuất' : type === 'import' ? 'nhập' : 'bán'}
-          </h3>
-          <button
-            onClick={() => setActiveTab(`add-${type}`)}
-            className="bg-blue-500 text-white px-4 py-2 rounded flex items-center hover:bg-blue-600"
-          >
-            <PlusCircle size={16} className="mr-2" />
-            Tạo đơn {type === 'export' ? 'xuất hàng' : type === 'import' ? 'nhập hàng' : 'bán hàng'}
-          </button>
-        </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="p-3 text-left">Mã đơn</th>
-                <th className="p-3 text-left">Sản phẩm</th>
-                <th className="p-3 text-left">Số lượng</th>
-                <th className="p-3 text-left">
-                  {type === 'export' ? 'Người nhận' : type === 'import' ? 'Nhà cung cấp' : 'Khách hàng'}
-                </th>
-                <th className="p-3 text-left">Ngày tạo</th>
-                <th className="p-3 text-left">Trạng thái</th>
-                <th className="p-3 text-left">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.filter(o => o.type === type).map(order => (
-                <tr key={order.id} className="border-b">
-                  <td className="p-3">{order.id}</td>
-                  <td className="p-3">{order.productId}</td>
-                  <td className="p-3">{order.quantity}</td>
-                  <td className="p-3">{order.recipientId}</td>
-                  <td className="p-3">{new Date(order.createdAt || order.date).toLocaleDateString('vi-VN')}</td>
-                  <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs ${
-                      order.status === 'completed' ? 'bg-green-100 text-green-800' :
-                      order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {order.status === 'completed' ? 'Hoàn thành' :
-                       order.status === 'pending' ? 'Chờ xử lý' : 'Đã hủy'}
-                    </span>
-                  </td>
-                  <td className="p-3">
-                    {order.status === 'pending' && (
-                      <button
-                        onClick={() => updateOrderStatus(order.id, 'completed')}
-                        className="text-green-500 hover:text-green-700"
-                        disabled={apiLoading}
-                      >
-                        <Check size={16} />
-                      </button>
-                    )}
-                  </td>
-                </tr>
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-xl font-semibold mb-4">
+          {type === 'export' ? 'Tạo đơn xuất hàng' : type === 'import' ? 'Tạo đơn nhập hàng' : 'Tạo đơn bán hàng'}
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Sản phẩm</label>
+            <select
+              value={orderForm.productId}
+              onChange={(e) => setOrderForm({ ...orderForm, productId: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+            >
+              <option value="">Chọn sản phẩm</option>
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name} - {product.batch}
+                </option>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Add Order Form */}
-      {activeTab === `add-${type}` && (
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-4">
-            Tạo đơn {type === 'export' ? 'xuất hàng' : type === 'import' ? 'nhập hàng' : 'bán hàng'}
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {type === 'export' || type === 'sale' ? (
-              <select
-                value={orderForm.productId}
-                onChange={(e) => setOrderForm({...orderForm, productId: e.target.value})}
-                className="border rounded p-2"
-              >
-                <option value="">Chọn sản phẩm</option>
-                {products.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} (Còn: {p.quantity})</option>
-                ))}
-              </select>
-            ) : (
-              <input
-                type="text"
-                placeholder="Mã sản phẩm"
-                value={orderForm.productId}
-                onChange={(e) => setOrderForm({...orderForm, productId: e.target.value})}
-                className="border rounded p-2"
-              />
-            )}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Số lượng</label>
             <input
               type="number"
-              placeholder="Số lượng"
               value={orderForm.quantity}
-              onChange={(e) => setOrderForm({...orderForm, quantity: parseInt(e.target.value) || 0})}
-              className="border rounded p-2"
-              min={1}
-            />
-            <input
-              type="text"
-              placeholder={
-                type === 'export' ? 'ID người nhận' : 
-                type === 'import' ? 'Nhà cung cấp' : 
-                'Thông tin khách hàng'
-              }
-              value={orderForm.recipientId}
-              onChange={(e) => setOrderForm({...orderForm, recipientId: e.target.value})}
-              className="border rounded p-2"
-            />
-            <textarea
-              placeholder="Ghi chú"
-              value={orderForm.notes}
-              onChange={(e) => setOrderForm({...orderForm, notes: e.target.value})}
-              className="border rounded p-2"
-              rows="2"
+              onChange={(e) => setOrderForm({ ...orderForm, quantity: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập số lượng"
             />
           </div>
-          <div className="flex space-x-4 mt-4">
-            <button
-              onClick={() => addOrder(type)}
-              disabled={apiLoading}
-              className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50"
-            >
-              {apiLoading ? 'Đang tạo...' : 'Tạo đơn hàng'}
-            </button>
-            <button
-              onClick={() => setActiveTab(type)}
-              className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-            >
-              Hủy
-            </button>
+          {type === 'export' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mã người nhận</label>
+                <input
+                  type="text"
+                  value={orderForm.recipientId}
+                  onChange={(e) => setOrderForm({ ...orderForm, recipientId: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md"
+                  placeholder="Nhập mã người nhận"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tên người nhận</label>
+                <input
+                  type="text"
+                  value={orderForm.recipientName}
+                  onChange={(e) => setOrderForm({ ...orderForm, recipientName: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md"
+                  placeholder="Nhập tên người nhận"
+                />
+              </div>
+            </>
+          )}
+          {type === 'import' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mã nhà cung cấp</label>
+                <input
+                  type="text"
+                  value={orderForm.recipientId}
+                  onChange={(e) => setOrderForm({ ...orderForm, recipientId: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md"
+                  placeholder="Nhập mã nhà cung cấp"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tên nhà cung cấp</label>
+                <input
+                  type="text"
+                  value={orderForm.supplierName}
+                  onChange={(e) => setOrderForm({ ...orderForm, supplierName: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-md"
+                  placeholder="Nhập tên nhà cung cấp"
+                />
+              </div>
+            </>
+          )}
+          {type === 'sale' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Thông tin khách hàng</label>
+              <input
+                type="text"
+                value={orderForm.customerInfo}
+                onChange={(e) => setOrderForm({ ...orderForm, customerInfo: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập thông tin khách hàng"
+              />
+            </div>
+          )}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+            <textarea
+              value={orderForm.notes}
+              onChange={(e) => setOrderForm({ ...orderForm, notes: e.target.value })}
+              className="w-full px-3 py-2 border rounded-md"
+              placeholder="Nhập ghi chú"
+              rows="3"
+            />
           </div>
         </div>
-      )}
+        <button
+          onClick={() => addOrder(type)}
+          disabled={apiLoading}
+          className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+        >
+          {apiLoading ? 'Đang xử lý...' : `Tạo đơn ${type === 'export' ? 'xuất' : type === 'import' ? 'nhập' : 'bán'}`}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="p-6">
+          <h2 className="text-xl font-semibold mb-4">
+            {type === 'export' ? 'Danh sách đơn xuất hàng' : type === 'import' ? 'Danh sách đơn nhập hàng' : 'Danh sách đơn bán hàng'}
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mã đơn</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Sản phẩm</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trạng thái</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ngày tạo</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {orders
+                  .filter((order) => order.type === type)
+                  .map((order) => (
+                    <tr key={order.id}>
+                      <td className="px-6 py-4 whitespace-nowrap">{order.id}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">{order.productName}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">{order.quantity}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            order.status === 'completed'
+                              ? 'bg-green-100 text-green-800'
+                              : order.status === 'pending'
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-gray-100 text-gray-800'
+                          }`}
+                        >
+                          {order.status === 'completed'
+                            ? 'Hoàn thành'
+                            : order.status === 'pending'
+                            ? 'Đang xử lý'
+                            : 'Đã hủy'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {new Date(order.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        {order.status === 'pending' && (
+                          <button
+                            onClick={() => updateOrderStatus(order.id, 'completed')}
+                            className="text-green-600 hover:text-green-900"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 
