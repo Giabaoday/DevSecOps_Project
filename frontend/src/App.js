@@ -1308,8 +1308,8 @@ export default function ProductTraceabilityApp() {
                 <ul className="space-y-1 text-gray-600">
                   <li>GET /products</li>
                   <li>POST /products</li>
-                  <li>PUT /products/{id}</li>
-                  <li>DELETE /products/{id}</li>
+                  <li>PUT /products/[product-id]</li>
+                  <li>DELETE /products/[product-id]</li>
                 </ul>
               </div>
               <div>
@@ -1325,7 +1325,7 @@ export default function ProductTraceabilityApp() {
                 <ul className="space-y-1 text-gray-600">
                   <li>GET /orders</li>
                   <li>POST /orders</li>
-                  <li>PUT /orders/{id}</li>
+                  <li>PUT /orders/[order-id]</li>
                 </ul>
               </div>
             </div>
