@@ -12,7 +12,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Tạo VPC..
+# Tạo VPC...
 module "vpc" {
   source = "../modules/vpc"
 
