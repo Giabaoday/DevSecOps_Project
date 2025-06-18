@@ -534,7 +534,6 @@ export default function ProductTraceabilityApp() {
           { key: 'dashboard', label: 'Trang chủ', icon: Home },
           { key: 'products', label: 'Sản phẩm', icon: Package },
           { key: 'import', label: 'Nhập hàng', icon: Package },
-          { key: 'sale', label: 'Bán hàng', icon: ShoppingCart },
           ...baseItems
         ];
       default:
@@ -947,79 +946,82 @@ export default function ProductTraceabilityApp() {
 
   const renderProducts = () => (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-xl font-semibold mb-4">Thêm sản phẩm mới</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Tên sản phẩm</label>
-            <input
-              type="text"
-              value={productForm.name}
-              onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập tên sản phẩm"
-            />
+      {/* Ẩn form thêm sản phẩm nếu là nhà bán lẻ */}
+      {user?.role !== USER_ROLES.RETAILER && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-4">Thêm sản phẩm mới</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tên sản phẩm</label>
+              <input
+                type="text"
+                value={productForm.name}
+                onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập tên sản phẩm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
+              <input
+                type="text"
+                value={productForm.category}
+                onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập danh mục"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
+              <input
+                type="text"
+                value={productForm.description}
+                onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập mô tả"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Số lượng</label>
+              <input
+                type="number"
+                value={productForm.quantity}
+                onChange={(e) => setProductForm({ ...productForm, quantity: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập số lượng"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Giá</label>
+              <input
+                type="number"
+                value={productForm.price}
+                onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập giá"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mã lô</label>
+              <input
+                type="text"
+                value={productForm.batch}
+                onChange={(e) => setProductForm({ ...productForm, batch: e.target.value })}
+                className="w-full px-3 py-2 border rounded-md"
+                placeholder="Nhập mã lô"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Danh mục</label>
-            <input
-              type="text"
-              value={productForm.category}
-              onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập danh mục"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
-            <input
-              type="text"
-              value={productForm.description}
-              onChange={(e) => setProductForm({ ...productForm, description: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập mô tả"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Số lượng</label>
-            <input
-              type="number"
-              value={productForm.quantity}
-              onChange={(e) => setProductForm({ ...productForm, quantity: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập số lượng"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Giá</label>
-            <input
-              type="number"
-              value={productForm.price}
-              onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập giá"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Mã lô</label>
-            <input
-              type="text"
-              value={productForm.batch}
-              onChange={(e) => setProductForm({ ...productForm, batch: e.target.value })}
-              className="w-full px-3 py-2 border rounded-md"
-              placeholder="Nhập mã lô"
-            />
-          </div>
+          <button
+            onClick={addProduct}
+            disabled={apiLoading}
+            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {apiLoading ? 'Đang xử lý...' : 'Thêm sản phẩm'}
+          </button>
         </div>
-        <button
-          onClick={addProduct}
-          disabled={apiLoading}
-          className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
-        >
-          {apiLoading ? 'Đang xử lý...' : 'Thêm sản phẩm'}
-        </button>
-      </div>
-
+      )}
+      {/* Danh sách sản phẩm vẫn hiển thị cho mọi vai trò */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-6">
           <h2 className="text-xl font-semibold mb-4">Danh sách sản phẩm</h2>
@@ -1541,13 +1543,6 @@ export default function ProductTraceabilityApp() {
             {renderOrders('import')}
           </RoleGuard>
         );
-      case 'sale': 
-      case 'add-sale': 
-        return (
-          <RoleGuard allowedRoles={[USER_ROLES.RETAILER]}>
-            {renderOrders('sale')}
-          </RoleGuard>
-        );
       case 'about': 
         return renderAbout();
       case 'contact': 
@@ -1635,67 +1630,16 @@ export default function ProductTraceabilityApp() {
                 </div>
                 <h3 className="text-xl font-semibold text-gray-800 mb-2">Nhà bán lẻ</h3>
                 <p className="text-gray-600 mb-4">
-                  Quản lý kho hàng, nhập hàng và bán hàng
+                  Quản lý kho hàng, nhập hàng
                 </p>
                 <ul className="text-sm text-gray-500 space-y-1">
                   <li>• Quản lý tồn kho</li>
                   <li>• Theo dõi nhập/xuất hàng</li>
-                  <li>• Xử lý đơn bán hàng</li>
                 </ul>
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <div className="bg-purple-50 text-purple-700 text-xs px-3 py-1 rounded-full inline-block">
                     Đăng nhập với Cognito
                   </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center mt-8">
-            <div className="mb-4">
-              <p className="text-gray-600 mb-4">
-                Hoặc dùng chế độ demo để test không cần đăng nhập:
-              </p>
-              <div className="flex flex-wrap justify-center gap-4">
-                <button
-                  onClick={() => selectRoleDemo(USER_ROLES.CONSUMER)}
-                  className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-200 transition duration-200"
-                >
-                  Demo Người tiêu dùng
-                </button>
-                <button
-                  onClick={() => selectRoleDemo(USER_ROLES.MANUFACTURER)}
-                  className="bg-green-100 text-green-700 px-4 py-2 rounded-lg hover:bg-green-200 transition duration-200"
-                >
-                  Demo Nhà sản xuất
-                </button>
-                <button
-                  onClick={() => selectRoleDemo(USER_ROLES.RETAILER)}
-                  className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg hover:bg-purple-200 transition duration-200"
-                >
-                  Demo Nhà bán lẻ
-                </button>
-              </div>
-            </div>
-            
-            <div className="border-t pt-6">
-              <p className="text-sm text-gray-500 mb-4">
-                💡 <strong>Hướng dẫn:</strong>
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left max-w-4xl mx-auto">
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-blue-800 mb-2">🔐 Chế độ Production</h4>
-                  <p className="text-sm text-blue-600">
-                    Click vào vai trò → Chuyển đến Cognito → Đăng nhập/Đăng ký → 
-                    Sử dụng với dữ liệu thật và xác thực blockchain
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="font-semibold text-gray-800 mb-2">🎮 Chế độ Demo</h4>
-                  <p className="text-sm text-gray-600">
-                    Click nút "Demo..." → Vào ngay ứng dụng → 
-                    Test tính năng với dữ liệu mẫu
-                  </p>
                 </div>
               </div>
             </div>
