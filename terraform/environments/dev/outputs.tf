@@ -5,7 +5,7 @@ output "dynamodb_table_name" {
 
 output "lambda_functions" {
   description = "ARNs of the Lambda functions"
-  value       = module.lambda_service.function_arn
+  value       = module.lambda_service.lambda_function_arn
 }
 
 output "api_gateway_endpoint" {
