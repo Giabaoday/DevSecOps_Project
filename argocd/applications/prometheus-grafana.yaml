@@ -1,0 +1,126 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    environment: monitoring
+    application: prometheus
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "56.21.4"  # Latest stable version
+    helm:
+      values: |
+        # Prometheus configuration
+        prometheus:
+          prometheusSpec:
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: gp2
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 10Gi
+            retention: 30d
+            resources:
+              requests:
+                memory: 400Mi
+                cpu: 100m
+              limits:
+                memory: 2Gi
+                cpu: 1000m
+            # Bỏ nodeSelector tạm thời để tránh scheduling issues
+            # nodeSelector:
+            #   node-role: monitoring
+        
+        # Grafana configuration
+        grafana:
+          enabled: true
+          adminPassword: "admin123!"  # Change this in production
+          persistence:
+            enabled: true
+            storageClassName: gp2
+            size: 5Gi
+          resources:
+            requests:
+              memory: 100Mi
+              cpu: 100m
+            limits:
+              memory: 200Mi
+              cpu: 200m
+          # nodeSelector:
+          #   node-role: monitoring
+          ingress:
+            enabled: true
+            ingressClassName: alb
+            annotations:
+              alb.ingress.kubernetes.io/scheme: "internet-facing"
+              alb.ingress.kubernetes.io/target-type: "ip"
+              alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:ap-southeast-1:195275632574:certificate/84eb2f96-d27e-43fd-a84d-b1d070a3ca2d"
+              alb.ingress.kubernetes.io/ssl-policy: "ELBSecurityPolicy-TLS13-1-2-2021-06"
+              alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+              alb.ingress.kubernetes.io/ssl-redirect: "443"
+            hosts:
+              - grafana.product-tracer.com
+            path: /
+        
+        # AlertManager configuration
+        alertmanager:
+          alertmanagerSpec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: gp2
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 2Gi
+            resources:
+              requests:
+                memory: 100Mi
+                cpu: 100m
+              limits:
+                memory: 200Mi
+                cpu: 200m
+            # nodeSelector:
+            #   node-role: monitoring
+        
+        # Node Exporter configuration
+        nodeExporter:
+          enabled: true
+        
+        # Kube State Metrics configuration
+        kubeStateMetrics:
+          enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      managedFieldsManagers:
+        - kube-controller-manager
