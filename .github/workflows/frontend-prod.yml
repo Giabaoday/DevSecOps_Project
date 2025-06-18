@@ -1,0 +1,341 @@
+name: Frontend CI/CD - Production
+on:
+  push:
+    branches: [ "main" ]  # 👈 Only triggers on main branch
+    paths:
+      - 'frontend/**'
+      - 'helm/frontend/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'frontend/**'
+      - 'helm/frontend/**'
+
+env:
+  AWS_REGION: ap-southeast-1
+  SECRETS_MANAGER_SECRET_NAME: devsecops/tokens
+  ENVIRONMENT: prod
+
+jobs:
+  GitLeaks:
+    runs-on: ubuntu-latest
+    name: Check for leaked secrets
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: GitLeaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  Build:
+    runs-on: ubuntu-latest
+    needs: GitLeaks
+    name: Unit Test and Build
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: npm
+        cache-dependency-path: frontend/package-lock.json
+    - name: Install dependencies
+      run: |
+        cd frontend
+        npm install
+    - name: Test and coverage (Strict)
+      run: |
+        cd frontend
+        npm run test  # Fail if tests fail in production
+
+  helm-validate:
+    runs-on: ubuntu-latest
+    needs: Build
+    name: Validate Helm Chart
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '3.12.0'
+          
+      - name: Lint Helm Chart
+        run: |
+          helm lint helm/frontend
+          
+      - name: Template Helm Chart (Prod)
+        run: |
+          helm template whattoeat-frontend helm/frontend \
+            --values helm/frontend/values-prod.yaml \
+            --set image.tag=prod-test-tag
+
+  SAST:
+    runs-on: ubuntu-latest
+    needs: helm-validate
+    name: SAST - SonarCloud (Strict)
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get secrets from AWS Secrets Manager
+      uses: aws-actions/aws-secretsmanager-get-secrets@v2
+      with:
+        secret-ids: |
+          ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+        parse-json-secrets: true
+          
+    - name: SonarCloud Scan
+      uses: sonarsource/sonarcloud-github-action@master
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SONAR_TOKEN: ${{ env.DEVSECOPS_TOKENS_SONAR_TOKEN }}
+      with:
+        args: >
+          -Dsonar.organization=giabao-22520120
+          -Dsonar.projectKey=giabao-22520120_devsecops
+
+  SCA:
+    runs-on: ubuntu-latest
+    needs: SAST
+    name: SCA Scans (Strict)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get secrets from AWS Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        with:
+          secret-ids: |
+            ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+          parse-json-secrets: true
+
+      - name: Run Snyk (Fail on high severity)
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ env.DEVSECOPS_TOKENS_SNYK_TOKEN }}
+        with:
+          command: test
+          args: --file=frontend/package.json --severity-threshold=high
+      
+      - name: OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'Frontend'
+          path: 'frontend'
+          format: 'HTML'
+          out: 'reports'
+
+  DAST:
+    runs-on: ubuntu-latest
+    needs: SCA
+    name: DAST - ZAP
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: ZAP Scan
+        uses: zaproxy/action-baseline@v0.11.0
+        continue-on-error: true
+        with:
+          target: 'https://dev.product-tracer.com/'  # Test against dev first
+          allow_issue_writing: false
+          fail_action: false
+          artifact_name: 'zap-scan-report-prod'
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: DAST
+    name: Build and push Production Docker image
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get Docker Hub secrets from AWS Secrets Manager
+        uses: aws-actions/aws-secretsmanager-get-secrets@v2
+        with:
+          secret-ids: |
+            ${{ env.SECRETS_MANAGER_SECRET_NAME }}
+          parse-json-secrets: true
+
+      - name: Set version
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "prod_tag=prod-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "version=v$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          load: true
+          build-args: |
+            API_URL=https://api.product-tracer.com
+          tags: |
+            baotg0502/devsecops:${{ steps.vars.outputs.prod_tag }}
+            baotg0502/devsecops:${{ steps.vars.outputs.version }}
+            baotg0502/devsecops:latest
+          context: ./frontend
+      
+      - name: Run Trivy vulnerability scanner (Strict)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'baotg0502/devsecops:${{ steps.vars.outputs.prod_tag }}'
+          format: 'table'
+          exit-code: '1'  # Fail on vulnerabilities in production
+          severity: 'CRITICAL,HIGH'
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_USERNAME }}
+          password: ${{ env.DEVSECOPS_TOKENS_DOCKERHUB_TOKEN }}
+      
+      - name: Push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          push: true
+          build-args: |
+            API_URL=https://api.product-tracer.com
+          tags: |
+            baotg0502/devsecops:${{ steps.vars.outputs.prod_tag }}
+            baotg0502/devsecops:${{ steps.vars.outputs.version }}
+            baotg0502/devsecops:latest
+          context: ./frontend
+
+  update-helm-values:
+    runs-on: ubuntu-latest
+    needs: docker
+    name: Update Production Helm Values
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set version
+        id: vars
+        run: |
+          echo "prod_tag=prod-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "version=v$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        
+      - name: Update Helm values for production environment
+        run: |
+          NEW_TAG="${{ steps.vars.outputs.version }}"
+          VALUES_FILE="helm/frontend/values-prod.yaml"
+          
+          # Update the image tag in prod values file
+          sed -i "s|tag: \".*\"|tag: \"${NEW_TAG}\"|g" $VALUES_FILE
+          
+          echo "Updated $VALUES_FILE with new image tag: $NEW_TAG"
+          cat $VALUES_FILE
+          
+      - name: Commit and push changes
+        run: |
+          NEW_TAG="${{ steps.vars.outputs.version }}"
+          
+          git config --global user.name "GitHub Actions [Prod]"
+          git config --global user.email "github-actions-prod@github.com"
+          
+          git add helm/frontend/values-prod.yaml
+          git commit -m "🏭 Update production frontend image to ${NEW_TAG} [skip ci]" || exit 0
+          git push
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: update-helm-values
+    name: Create GitHub Release
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set version
+        id: vars
+        run: |
+          echo "version=v$(date +%Y%m%d)-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.vars.outputs.version }}
+          release_name: Production Release ${{ steps.vars.outputs.version }}
+          body: |
+            ## Production Release ${{ steps.vars.outputs.version }}
+            
+            🚀 **Deployment Information:**
+            - Environment: Production
+            - Branch: main
+            - Commit: ${{ github.sha }}
+            - Image Tag: ${{ steps.vars.outputs.version }}
+            
+            📋 **What's Changed:**
+            - Frontend application updated
+            - Helm values updated for production
+            
+            ⚠️  **Manual Deployment Required:**
+            This release requires manual approval and deployment through ArgoCD.
+            
+            **Deploy Commands:**
+            ```bash
+            # Review changes in ArgoCD UI
+            argocd app get whattoeat-frontend-prod
+            
+            # Manual sync after review
+            argocd app sync whattoeat-frontend-prod
+            ```
+            
+            🔗 **Links:**
+            - [ArgoCD Application](https://argocd.your-domain.com/applications/whattoeat-frontend-prod)
+            - [Docker Image](https://hub.docker.com/r/baotg0502/devsecops/tags)
+          draft: false
+          prerelease: false
+
+  notify-production:
+    runs-on: ubuntu-latest
+    needs: create-release
+    name: Notify Production Ready
+    steps:
+      - name: Production Deployment Notification
+        run: |
+          echo "🏭 Production deployment ready!"
+          echo "📋 Environment: Production"
+          echo "⚠️  Manual approval required"
+          echo "🔗 Monitor at: https://argocd.your-domain.com"
+          echo "📱 Application: whattoeat-frontend-prod"
+          echo "🎯 Next Steps:"
+          echo "  1. Review changes in ArgoCD UI"
+          echo "  2. Verify image and configuration"
+          echo "  3. Manual sync: argocd app sync whattoeat-frontend-prod"
+          echo "  4. Monitor deployment progress"

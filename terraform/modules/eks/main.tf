@@ -5,13 +5,18 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = "1.31"
 
-  bootstrap_self_managed_addons = false
   cluster_addons = {
     coredns                = {}
     eks-pod-identity-agent = {}
     kube-proxy             = {}
     vpc-cni                = {}
+    aws-ebs-csi-driver = {
+      service_account_role_arn = "arn:aws:iam::195275632574:role/AmazonEKSPodIdentityAmazonEBSCSIDriverRole"
+    }
   }
+
+  cluster_endpoint_public_access           = true
+  enable_cluster_creator_admin_permissions = true
 
   vpc_id     = var.vpc_id
   subnet_ids = var.vpc_private_subnet_ids
@@ -19,39 +24,22 @@ module "eks" {
   eks_managed_node_groups = {
     appnodegroup = {
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.micro"]
+      instance_types = ["t3.small"]
 
       min_size     = 1
-      max_size     = 2
-      desired_size = 1
-    }
-
-    blockchainnodegroup = {
-      ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.micro"]
-
-      min_size     = 1
-      max_size     = 2
-      desired_size = 1
-    }
-
-    monitoringnodegroup = {
-      ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.micro"]
-
-      min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 3
+      desired_size = 3
     }
 
     argocdnodegroup = {
       ami_type       = "AL2023_x86_64_STANDARD"
-      instance_types = ["t3.micro"]
+      instance_types = ["t3.small"]
 
       min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 3
+      desired_size = 3
     }
   }
   tags = var.tags
 }
+

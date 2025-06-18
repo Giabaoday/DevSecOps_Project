@@ -12,7 +12,7 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Tạo VPC
+# Tạo VPC..
 module "vpc" {
   source = "../modules/vpc"
 
@@ -23,8 +23,22 @@ module "vpc" {
   public_subnets     = var.public_subnets
 
   tags = {
-    Environment = var.environment
+    Project   = var.project_name
+    ManagedBy = "Terraform"
+  }
+}
+
+#Tạo EKS cluster
+module "eks" {
+  source = "../modules/eks"
+
+  cluster_name           = "${var.project_name}-eks"
+  vpc_id                 = module.vpc.vpc_id
+  vpc_private_subnet_ids = module.vpc.private_subnets
+
+  tags = {
     Project     = var.project_name
     ManagedBy   = "Terraform"
+    Application = "Product Traceability"
   }
 }

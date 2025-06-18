@@ -52,12 +52,6 @@ variable "app_version" {
   default = "158b2cd63572d3115e89204ad3786762eac77996"
 }
 
-variable "certificate_arn" {
-  description = "ARN of the certificate for API Gateway"
-  type        = string
-  default     = "arn:aws:acm:ap-southeast-1:195275632574:certificate/df165cd6-29f1-4078-a6de-7144987d56ac"
-}
-
 variable "cognito_user_pool_id" {
   description = "ID of the Cognito User Pool"
   type        = string
