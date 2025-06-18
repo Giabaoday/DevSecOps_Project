@@ -1029,6 +1029,7 @@ export default function ProductTraceabilityApp() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Mã sản phẩm</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tên</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Danh mục</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Số lượng</th>
@@ -1041,6 +1042,7 @@ export default function ProductTraceabilityApp() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {products.map((product) => (
                   <tr key={product.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">{product.id}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{product.name}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{product.category}</td>
                     <td className="px-6 py-4 whitespace-nowrap">{product.quantity}</td>
