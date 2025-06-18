@@ -17,9 +17,6 @@ spec:
     helm:
       valueFiles:
         - values-prod.yaml
-      parameters:
-        - name: image.tag
-          value: "prod-latest"
   destination:
     server: https://kubernetes.default.svc
     namespace: production
