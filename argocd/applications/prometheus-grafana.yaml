@@ -13,7 +13,7 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: "56.21.4"  # Latest stable version
+    targetRevision: "56.21.4"
     helm:
       values: |
         # Prometheus configuration
@@ -35,9 +35,8 @@ spec:
               limits:
                 memory: 2Gi
                 cpu: 1000m
-            # Bỏ nodeSelector tạm thời để tránh scheduling issues
-            # nodeSelector:
-            #   node-role: monitoring
+              nodeSelector:
+                node-role: monitoring
         
         # Grafana configuration
         grafana:
@@ -54,8 +53,8 @@ spec:
             limits:
               memory: 200Mi
               cpu: 200m
-          # nodeSelector:
-          #   node-role: monitoring
+            nodeSelector:
+              node-role: monitoring
           ingress:
             enabled: true
             ingressClassName: alb
@@ -88,8 +87,8 @@ spec:
               limits:
                 memory: 200Mi
                 cpu: 200m
-            # nodeSelector:
-            #   node-role: monitoring
+              nodeSelector:
+                node-role: monitoring
         
         # Node Exporter configuration
         nodeExporter:
