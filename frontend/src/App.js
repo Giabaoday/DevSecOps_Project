@@ -1794,7 +1794,7 @@ export default function ProductTraceabilityApp() {
           </div>
         )}
         
-        {/* Global Loading Indicator */}
+        {/* Global Loading Indicator. */}
         {apiLoading && (
           <div className="fixed top-20 right-4 z-50 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg flex items-center">
             <RefreshCw size={16} className="mr-2 animate-spin" />
