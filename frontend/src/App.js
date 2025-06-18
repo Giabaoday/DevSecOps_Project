@@ -1561,7 +1561,7 @@ export default function ProductTraceabilityApp() {
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-gray-800 mb-4">
-              Hệ thống Truy xuất Nguồn gốc Sản phẩm
+              Hệ thống Truy xuất Nguồn gốc Sản phẩm (thử nghiệm)
             </h1>
             <p className="text-xl text-gray-600 mb-2">
               Sử dụng công nghệ Blockchain và AWS Cloud
