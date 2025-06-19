@@ -157,7 +157,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.11.0
         continue-on-error: true
         with:
-          target: 'https://example.com/'
+          target: 'https://product-tracer.com/'
           allow_issue_writing: false
           fail_action: false
           artifact_name: 'zap-scan-report'
