@@ -1,0 +1,32 @@
+# Node.js / Next.js
+node_modules/
+.next/
+npm-debug.log
+package-lock.json
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+
+# Hardhat
+artifacts/
+cache/
+typechain/
+
+# Docker
+*.env
+docker-compose.override.yml
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific
+.env
+*.txt
+DevSecOps_Blockchain_App.code-workspace
+

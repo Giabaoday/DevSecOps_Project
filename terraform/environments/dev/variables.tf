@@ -49,7 +49,7 @@ variable "public_subnets" {
 variable "app_version" {
   description = "Version of the application"
   type        = string
-  default = "158b2cd63572d3115e89204ad3786762eac77996"
+  default     = "158b2cd63572d3115e89204ad3786762eac77996"
 }
 
 variable "cognito_user_pool_id" {
