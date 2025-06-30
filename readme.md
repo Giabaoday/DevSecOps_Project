@@ -5,7 +5,7 @@ Hệ thống ứng dụng web giúp truy xuất nguồn gốc sản phẩm, sử
 ## 👥 Nhóm phát triển
 
 - **Sinh viên**: Trần Gia Bảo - 22520120 (Nhóm trưởng, Backend developer, Cloud Infrastructure & DevSecOps Engineer)
-- **Sinh viên**: Nguyễn Đặng Bình Minh (Blockchain Developer) - 22520871
+- **Sinh viên**: Nguyễn Đặng Bình Minh (Blockchain, Frontend Developer) - 22520871
 
 ## 🛠️ Công nghệ sử dụng
 
