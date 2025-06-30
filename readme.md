@@ -37,17 +37,17 @@ Hệ thống ứng dụng web giúp truy xuất nguồn gốc sản phẩm, sử
 - **📦 Terraform Modules** - Tái sử dụng và quản lý modules
 
 ### 🔄 DevSecOps CI/CD Pipeline
-- **🔄 GitHub Actions** - CI/CD automation platform
-- **🚀 ArgoCD** - GitOps continuous deployment
+- **🔄 GitHub Actions** - Công cụ CI/CD của GitHub 
+- **🚀 ArgoCD** - GitOps CD
 - **⛵ Helm** - Kubernetes package manager
 - **🔍 Security Tools:**
-  - **🕳️ Gitleaks** - Secret scanning
-  - **📊 SonarQube Cloud** - Code quality & security analysis  
-  - **🔍 Snyk** - Vulnerability scanning for dependencies
-  - **🛡️ OWASP ZAP** - Dynamic application security testing
-  - **🏗️ Checkov** - Infrastructure as Code security scanning
-  - **🔒 Terrascan** - Infrastructure security policy scanning
-  - **🐳 Trivy** - Container vulnerability scanning
+  - **🕳️ Gitleaks** - Quét secrets
+  - **📊 SonarQube Cloud** - Phân tích chất lượng code và bảo mật 
+  - **🔍 Snyk** - Quét lỗ hổng dependencies
+  - **🛡️ OWASP ZAP** - Test ứng dụng web đang chạy
+  - **🏗️ Checkov** - Quét bảo mật Infrastructure as Code
+  - **🔒 Terrascan** - Quét bảo mật Infrastructure as Code
+  - **🐳 Trivy** - Quét lỗ hổng container image
 
 ## 🔄 CI/CD Pipeline
 
@@ -68,10 +68,10 @@ Hệ thống ứng dụng web giúp truy xuất nguồn gốc sản phẩm, sử
 - **🔍 GitLeaks Scan** - Quét secret leaks
 - **🏗️ Build & Test** - Build ứng dụng React và chạy unit tests
 - **🛡️ Security Scanning:**
-  - **📊 SonarQube** - Code quality analysis
-  - **🔍 Snyk & OWASP** - Dependencies vulnerability scan
-  - **🌐 OWASP ZAP** - Dynamic application security testing
-- **🐳 Docker Build & Trivy Scan** - Build image và quét vulnerabilities
+  - **📊 SonarQube** - Phân tích chất lượng code
+  - **🔍 Snyk & OWASP** - Quét lỗ hổng dependencies
+  - **🌐 OWASP ZAP** - Test ứng dụng đang chạy
+- **🐳 Docker Build & Trivy Scan** - Build image và quét lỗ hổng
 - **📦 Push to DockerHub** - Đẩy image lên registry
 - **⛵ Update Helm Values** - Cập nhật image tag trong Helm charts
 - **🚀 ArgoCD Auto-sync** - Tự động triển khai qua GitOps
